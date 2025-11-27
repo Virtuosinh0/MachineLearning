@@ -10,7 +10,6 @@ import numpy as np
 from utils.constants import MODEL_CACHE_PATH, ITEM_FEATURES_PATH, POPULARITY_PATH, TYPE_WEIGHTS, HALF_LIFE_DAYS, PRICE_WEIGHT
 from db import get_db_connection
 
-# MODIFICAÇÃO: Inicialize as variáveis globais aqui para que possam ser importadas
 _item_df = None
 _similarity_matrix = None
 _popularity = None
@@ -47,10 +46,11 @@ def load_items_from_db():
             COALESCE(supplier_price, 0) + COALESCE(process_price, 0) + COALESCE(profit, 0) as total_price
             FROM jewelries
             WHERE quantity > 0
-            AND to_sell = true;
+            -- REMOVIDO PARA TESTE: AND to_sell = true; 
         """
         df = pd.read_sql_query(query, conn)
         if df.empty:
+            print("[recommendation_logic] A query SQL retornou zero itens. Verifique sua tabela 'jewelries'.") 
             return pd.DataFrame()
         
         df['id'] = df['id'].astype(str)
@@ -123,6 +123,11 @@ def train_model(limit_days=365):
         print("[recommendation_logic] Nenhum item encontrado na tabela 'jewelries'.")
         return
     sim = compute_item_similarity(df)
+    
+    if sim is not None:
+        sim_path = os.path.join(MODEL_CACHE_PATH, "similarity_matrix.pkl")
+        joblib.dump(sim, sim_path)
+    
     pop = compute_popularity(limit_days=limit_days)
     os.makedirs(MODEL_CACHE_PATH, exist_ok=True)
     joblib.dump(df, ITEM_FEATURES_PATH)
@@ -142,7 +147,8 @@ def _load_cache_if_needed():
             _similarity_matrix = joblib.load(sim_path)
         else:
             _similarity_matrix = compute_item_similarity(_item_df)
-            joblib.dump(_similarity_matrix, sim_path)
+            if _similarity_matrix is not None:
+                joblib.dump(_similarity_matrix, sim_path)
     if _popularity is None:
         if os.path.exists(POPULARITY_PATH):
             _popularity = joblib.load(POPULARITY_PATH)
@@ -160,21 +166,30 @@ def explain_similarity(seed_id: str, candidate_id: str):
         return "DataFrame de features não carregado."
 
     try:
-        seed_vector = _item_df.loc[_item_df['id'] == seed_id].iloc[0]
-        candidate_vector = _item_df.loc[_item_df['id'] == candidate_id].iloc[0]
+        feature_cols = [col for col in _item_df.columns if col != 'id']
+        
+        seed_row = _item_df.loc[_item_df['id'] == seed_id]
+        candidate_row = _item_df.loc[_item_df['id'] == candidate_id]
 
-        categorical_cols = [col for col in _item_df.columns if col not in ['id', 'total_price']]
-        numerical_cols = ['total_price']
+        if seed_row.empty or candidate_row.empty:
+            return f"Não foi possível encontrar o ID {seed_id} ou {candidate_id} no DataFrame de features."
+
+        seed_vector = seed_row.iloc[0]
+        candidate_vector = candidate_row.iloc[0]
+
+        categorical_cols = [col for col in feature_cols if not col.startswith('total_price')]
+        numerical_col = 'total_price'
 
         shared_categories = []
         for col in categorical_cols:
-            if seed_vector[col] == 1 and candidate_vector[col] == 1:
+            if col in seed_vector.index and seed_vector[col] == 1 and candidate_vector[col] == 1:
                 shared_categories.append(col)
 
         price_contribution = 0
-        seed_price_w = seed_vector['total_price'] * PRICE_WEIGHT
-        candidate_price_w = candidate_vector['total_price'] * PRICE_WEIGHT
-        price_contribution = seed_price_w * candidate_price_w
+        if numerical_col in seed_vector.index and numerical_col in candidate_vector.index:
+            seed_price_w = seed_vector[numerical_col] * PRICE_WEIGHT
+            candidate_price_w = candidate_vector[numerical_col] * PRICE_WEIGHT
+            price_contribution = seed_price_w * candidate_price_w 
 
         dot_product = len(shared_categories) + price_contribution
 

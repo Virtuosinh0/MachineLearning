@@ -196,7 +196,8 @@ def load_xgb_model() -> Optional[XGBRegressor]:
 def recommend_with_xgb(user_id: str, count: int = 10) -> List[str]:
     training._load_cache_if_needed()
     if training._item_df is None:
-        raise RuntimeError("Features de item não carregadas. Rode training.train_model().")
+        print("[xgboost_training] Features de item não carregadas. Retornando vazio.") # 🟢 NOVO LOG
+        return []
 
     model = load_xgb_model()
     if model is None:
@@ -216,9 +217,10 @@ def recommend_with_xgb(user_id: str, count: int = 10) -> List[str]:
 
     item_df = training._item_df.copy()
     cand_df = item_df[~item_df['id'].isin(interacted_set)].reset_index(drop=True)
+    
     if cand_df.empty:
-        print(f"[xgboost_training] Usuário {user_id} não tem candidatos não-interagidos — fallback popularidade.")
-        return (training._popularity or [])[:count]
+        print(f"[xgboost_training] Usuário {user_id} não tem candidatos não-interagidos (total interações: {len(interacted_set)}).")
+        return (training._popularity or [])[:count] 
 
     feat_cols = [c for c in cand_df.columns if c != 'id']
     X_cand = cand_df[feat_cols].values.astype(float)
