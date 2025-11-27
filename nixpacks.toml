@@ -6,11 +6,14 @@ aptPackages = [
   "gfortran", 
   "libopenblas-dev",
   "liblapack-dev",
-  "libomp-dev" # Para OpenMP, crucial para LightFM em alguns ambientes
+  "libomp-dev" 
 ]
 
 [phases.build]
-cmds = ["pip install cython", "pip install -r requirements.txt"] 
+cmds = [
+  "pip install cython wheel", 
+  "pip install -r requirements.txt"
+] 
 
 [start]
 cmd = "uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1"
