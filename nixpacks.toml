@@ -12,8 +12,9 @@ aptPackages = [
 [phases.build]
 cmds = [
   "pip install cython wheel", 
-  "pip install -r requirements.txt"
-] 
+  "pip install lightfm==1.17 --no-use-pep517",
+  "pip install -r requirements.txt --ignore-installed cython lightfm" 
+]
 
 [start]
 cmd = "uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1"
