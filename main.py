@@ -9,17 +9,18 @@ import uuid
 from pydantic.config import ConfigDict
 import os
 
-from training.training import train_model
+from training.training import train_model, _load_cache_if_needed, _item_df, _popularity
 from training.xgboost_training import train_xgb
 from recommending.recommendation import get_recommendations
 from training.xgboost_training import recommend_with_xgb
 
-@asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
         print("Iniciando a aplicação e treinando o modelo...")
         train_model(limit_days=365) 
         train_xgb(limit_days=365, neg_ratio=3)
+        
+        _load_cache_if_needed() 
         
     except Exception as e:
         print(f"Aviso: falha ao treinar o modelo na inicialização: {e}")
@@ -27,6 +28,7 @@ async def lifespan(app: FastAPI):
 
     yield
     print("Aplicação encerrada.")
+
 
 app = FastAPI(
     lifespan=lifespan,
@@ -48,6 +50,26 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={"detail": error_details},
     )
+    
+@app.get("/diagnostic")
+def diagnostic_data():
+    item_count = len(_item_df) if _item_df is not None else 0
+    pop_count = len(_popularity) if _popularity is not None else 0
+    
+    if item_count == 0 or pop_count == 0:
+        return {
+            "status": "CRÍTICO: Dados de treinamento ausentes",
+            "item_count": item_count,
+            "popularity_count": pop_count,
+            "detalhes": "Se 'item_count' for 0, o problema está na consulta SQL à tabela 'jewelries'. Se 'popularity_count' for 0, o problema está na tabela 'user_interaction'. Verifique o conteúdo do seu banco de dados no Railway."
+        }
+    
+    return {
+        "status": "OK: Dados Carregados",
+        "item_count": item_count,
+        "popularity_count": pop_count,
+        "first_popular_item": _popularity[0] if pop_count > 0 else None
+    }
 
 
 class RecommendationRequest(BaseModel):
