@@ -13,8 +13,8 @@ aptPackages = [
 cmds = [
   "pip install cython wheel", 
   "pip install lightfm==1.17 --no-use-pep517",
-  "pip install -r requirements.txt --ignore-installed cython lightfm" 
-]
+  "pip install -r requirements.txt" 
+] 
 
 [start]
 cmd = "uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1"
