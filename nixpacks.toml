@@ -2,11 +2,15 @@
 nixPkgs = ["python311", "python311Packages.pip"]
 aptPackages = [
   "build-essential",
-  "python3-dev"      
+  "python3-dev",      
+  "gfortran", 
+  "libopenblas-dev",
+  "liblapack-dev",
+  "libomp-dev" # Para OpenMP, crucial para LightFM em alguns ambientes
 ]
 
 [phases.build]
-cmds = ["pip install -r requirements.txt"]
+cmds = ["pip install cython", "pip install -r requirements.txt"] 
 
 [start]
 cmd = "uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1"
