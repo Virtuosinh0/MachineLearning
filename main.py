@@ -21,14 +21,8 @@ async def lifespan(app: FastAPI):
     print(f"Variáveis de Ambiente (PGHOST, etc.): PGHOST={os.getenv('PGHOST', 'N/A')}")
     
     try:
-        print("Iniciando a aplicação e treinando o modelo...")
         train_model(limit_days=365) 
         train_xgb(limit_days=365, neg_ratio=3)
-        
-        print("[main.py] Treinamento principal/XGB concluído. Carregando cache...")
-        _load_cache_if_needed() 
-        print(f"[main.py] Status do cache após load: Items={len(_item_df) if _item_df is not None else 0}, Pop={len(_popularity) if _popularity is not None else 0}")
-        
     except Exception as e:
         print(f"Aviso: falha ao treinar o modelo na inicialização: {e}")
         print("A aplicação continuará, tentando carregar modelos cacheados (se existirem).")

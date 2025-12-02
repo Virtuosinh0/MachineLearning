@@ -2,6 +2,8 @@ from db import get_db_connection
 from training.training import _load_cache_if_needed, _popularity, _item_df, _similarity_matrix, interaction_score
 from training import training
 
+from training import training
+
 def get_recommendations(user_id: str, count: int = 10):
     
     training._load_cache_if_needed()
