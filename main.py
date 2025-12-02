@@ -9,6 +9,7 @@ import uuid
 from pydantic.config import ConfigDict
 import os
 import platform
+import traceback
 
 from training.training import train_model, _load_cache_if_needed, _item_df, _popularity
 from training.xgboost_training import train_xgb
@@ -97,36 +98,9 @@ class RecommendationResponse(BaseModel):
 @app.get("/")
 def read_root():
     return {"status": "Serviço de ML online"}
-
-@app.post("/recommendationsOld", response_model=RecommendationResponse)
-def recommend_old(request: RecommendationRequest):
-    try:
-        user_id_str = str(request.userId)
-        count = int(request.numberOfRecommendations)
-
-        recs_gosto = get_recommendations(user_id=user_id_str, count=count)
-
-        recs_xgb = recommend_with_xgb(user_id=user_id_str, count=count)
-
-        def parse_uuids(id_list):
-            valid_uuids = []
-            for r in id_list:
-                try:
-                    valid_uuids.append(uuid.UUID(r))
-                except Exception:
-                    continue
-            return valid_uuids
-        
-        return RecommendationResponse(
-            recommendedForYou=parse_uuids(recs_gosto),
-            popularNow=parse_uuids(recs_xgb)
-        )
-    except Exception as e:
-        print(f"Erro ao processar a recomendação para o usuário {request.userId}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
     
 @app.post("/recommendations", response_model=RecommendationResponse)
-def recommend_new(request: RecommendationRequest): 
+def recommend(request: RecommendationRequest): 
     try:
         user_id_str = str(request.userId)
         count = int(request.numberOfRecommendations)
@@ -149,5 +123,8 @@ def recommend_new(request: RecommendationRequest):
             popularNow=parse_uuids(recs_xgb)
         )
     except Exception as e:
-        print(f"Erro inesperado no endpoint /recommendations: {e}") 
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"--- ERRO CRÍTICO NO ENDPOINT /RECOMMENDATIONS ---") 
+        print(f"Erro inesperado ao processar a requisição: {e}") 
+        traceback.print_exc() 
+        print("-------------------------------------------------") 
+        return RecommendationResponse(recommendedForYou=[], popularNow=[])
