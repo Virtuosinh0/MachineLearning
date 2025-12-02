@@ -1,6 +1,7 @@
 import os
 
 MODEL_CACHE_PATH = "models"
+XGB_MODEL_PATH = "model_cache"
 ITEM_FEATURES_PATH = os.path.join(MODEL_CACHE_PATH, "item_features.pkl")
 POPULARITY_PATH = os.path.join(MODEL_CACHE_PATH, "popularity.pkl")
 
