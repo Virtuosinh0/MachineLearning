@@ -21,20 +21,13 @@ except Exception as e:
     print("[xgboost_training] Aviso: xgboost não está instalado. Instale com: pip install xgboost")
 
 try:
-    from utils.constants import MODEL_CACHE_PATH, XGB_MODEL_PATH
-except Exception:
-    MODEL_CACHE_PATH = os.path.join("model_cache")
-    XGB_MODEL_PATH = os.path.join(MODEL_CACHE_PATH, "xgb_model.pkl")
-
-try:
-    from utils.constants import MODEL_CACHE_PATH, XGB_MODEL_PATH
-except Exception:
-    MODEL_CACHE_PATH = os.path.join("model_cache")
-    XGB_MODEL_PATH = os.path.join(MODEL_CACHE_PATH, "xgb_model.pkl")
+    from utils.constants import MODEL_CACHE_PATH 
+    XGB_MODEL_FILE = os.path.join(MODEL_CACHE_PATH, "xgb_model.pkl")
+except ImportError:
+    MODEL_CACHE_PATH = "models"
+    XGB_MODEL_FILE = os.path.join(MODEL_CACHE_PATH, "xgb_model.pkl")
 
 os.makedirs(MODEL_CACHE_PATH, exist_ok=True)
-
-XGB_MODEL_FILE = XGB_MODEL_PATH
 
 def _fetch_interactions(limit_days: Optional[int] = None) -> pd.DataFrame:
     conn = get_db_connection()
@@ -198,7 +191,7 @@ def load_xgb_model() -> Optional[XGBRegressor]:
 def recommend_with_xgb(user_id: str, count: int = 10) -> List[str]:
     training._load_cache_if_needed()
     if training._item_df is None:
-        print("[xgboost_training] Features de item não carregadas. Retornando vazio.") # 🟢 NOVO LOG
+        print("[xgboost_training] Features de item não carregadas. Retornando vazio.")
         return []
 
     model = load_xgb_model()
