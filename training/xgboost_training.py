@@ -189,16 +189,19 @@ def load_xgb_model() -> Optional[XGBRegressor]:
         return None
 
 def recommend_with_xgb(user_id: str, count: int = 10) -> List[str]:
-    training._load_cache_if_needed()
+    
+    training._load_cache_if_needed() 
+    
     if training._item_df is None:
-        print("[xgboost_training] Features de item não carregadas. Retornando vazio.")
-        return []
+        print("[xgboost_training] Features de item não carregadas. Retornando popularidade (fallback).")
+        return (training._popularity or [])[:count] 
 
     model = load_xgb_model()
+    
     if model is None:
         print("[xgboost_training] Modelo XGB indisponível — usando fallback de popularidade.")
-        return (training._popularity or [])[:count]
-
+        return (training._popularity or [])[:count] 
+    
     conn = get_db_connection()
     interacted_set = set()
     try:
