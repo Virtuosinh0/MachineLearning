@@ -175,6 +175,7 @@ def train_xgb(limit_days: Optional[int] = 365,
     }
 
     if persist:
+        os.makedirs(MODEL_CACHE_PATH, exist_ok=True)
         joblib.dump(model, XGB_MODEL_FILE)
         print(f"[xgboost_training] Modelo salvo em: {XGB_MODEL_FILE}")
 
@@ -182,8 +183,9 @@ def train_xgb(limit_days: Optional[int] = 365,
     return result
 
 def load_xgb_model() -> Optional[XGBRegressor]:
+    print(f"[xgboost_training] Tentando carregar modelo XGB de: {XGB_MODEL_FILE}")
     if not os.path.exists(XGB_MODEL_FILE):
-        print(f"[xgboost_training] Modelo XGB não encontrado em {XGB_MODEL_FILE}")
+        print(f"[xgboost_training] Modelo XGB não encontrado em {XGB_MODEL_FILE}. Retornando None.")
         return None
     try:
         model = joblib.load(XGB_MODEL_FILE)

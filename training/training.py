@@ -125,13 +125,18 @@ def train_model(limit_days=365):
     sim = compute_item_similarity(df)
     
     if sim is not None:
+        os.makedirs(MODEL_CACHE_PATH, exist_ok=True) # MODIFICAÇÃO: Garante que o diretório existe ANTES de salvar o primeiro arquivo.
+        print(f"[recommendation_logic] Criando diretório cache: {MODEL_CACHE_PATH}") # MODIFICAÇÃO: Log do diretório.
         sim_path = os.path.join(MODEL_CACHE_PATH, "similarity_matrix.pkl")
         joblib.dump(sim, sim_path)
+        print(f"[recommendation_logic] Matriz de Similaridade salva em: {sim_path}") # MODIFICAÇÃO: Log do salvamento.
     
     pop = compute_popularity(limit_days=limit_days)
-    os.makedirs(MODEL_CACHE_PATH, exist_ok=True)
+    os.makedirs(MODEL_CACHE_PATH, exist_ok=True) # MODIFICAÇÃO: Mantenha aqui também, por segurança.
     joblib.dump(df, ITEM_FEATURES_PATH)
     joblib.dump(pop, POPULARITY_PATH)
+    print(f"[recommendation_logic] Features salvas em: {ITEM_FEATURES_PATH}") # MODIFICAÇÃO: Log do salvamento.
+    print(f"[recommendation_logic] Popularidade salva em: {POPULARITY_PATH}") # MODIFICAÇÃO: Log do salvamento.
     _item_df = df
     _similarity_matrix = sim
     _popularity = pop
@@ -139,23 +144,32 @@ def train_model(limit_days=365):
 
 def _load_cache_if_needed():
     global _item_df, _similarity_matrix, _popularity
+    print("[recommendation_logic] Tentando carregar cache...")
     if _item_df is None and os.path.exists(ITEM_FEATURES_PATH):
         _item_df = joblib.load(ITEM_FEATURES_PATH)
+        print(f"[recommendation_logic] Item Features carregadas de: {ITEM_FEATURES_PATH}")
+    elif _item_df is None:
+        print(f"[recommendation_logic] Item Features NÃO encontradas em: {ITEM_FEATURES_PATH}")
+        
     if _similarity_matrix is None and _item_df is not None:
         sim_path = os.path.join(MODEL_CACHE_PATH, "similarity_matrix.pkl")
         if os.path.exists(sim_path):
             _similarity_matrix = joblib.load(sim_path)
+            print(f"[recommendation_logic] Matriz de Similaridade carregada de: {sim_path}")
         else:
+            print(f"[recommendation_logic] Matriz de Similaridade NÃO encontrada em: {sim_path}. Recalculando...")
             _similarity_matrix = compute_item_similarity(_item_df)
             if _similarity_matrix is not None:
                 joblib.dump(_similarity_matrix, sim_path)
     if _popularity is None:
         if os.path.exists(POPULARITY_PATH):
             _popularity = joblib.load(POPULARITY_PATH)
+            print(f"[recommendation_logic] Popularidade carregada de: {POPULARITY_PATH}")
         else:
+            print(f"[recommendation_logic] Popularidade NÃO encontrada. Recalculando...")
             _popularity = compute_popularity()
-            
-            
+
+
 def explain_similarity(seed_id: str, candidate_id: str):
     """
     Função de diagnóstico para mostrar quais features contribuem para a similaridade
