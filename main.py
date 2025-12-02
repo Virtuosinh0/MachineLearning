@@ -12,6 +12,7 @@ import platform
 
 from training.training import train_model, _load_cache_if_needed, _item_df, _popularity
 from training.xgboost_training import train_xgb
+from training.xgboost_training import load_xgb_model
 from recommending.recommendation import get_recommendations
 from training.xgboost_training import recommend_with_xgb
 
@@ -57,11 +58,21 @@ def diagnostic_data():
     item_count = len(_item_df) if _item_df is not None else 0
     pop_count = len(_popularity) if _popularity is not None else 0
     
+    xgb_status = "N/A (Falha ao carregar)"
+    xgb_model = load_xgb_model()
+    if xgb_model is not None:
+        xgb_status = "Carregado OK"
+    else:
+        print("[diagnostic] Tentativa de carregamento de XGBoost na requisição...")
+        load_xgb_model() 
+    # ---------------------------------------------
+
     if item_count == 0 or pop_count == 0:
         return {
             "status": "CRÍTICO: Dados de treinamento ausentes",
             "item_count": item_count,
             "popularity_count": pop_count,
+            "xgb_model_status": xgb_status, # Novo campo
             "detalhes": "Se 'item_count' for 0, o problema está na consulta SQL à tabela 'jewelries'. Se 'popularity_count' for 0, o problema está na tabela 'user_interaction'. Verifique o conteúdo do seu banco de dados no Railway."
         }
     
@@ -69,7 +80,8 @@ def diagnostic_data():
         "status": "OK: Dados Carregados",
         "item_count": item_count,
         "popularity_count": pop_count,
-        "first_popular_item": _popularity[0] if pop_count > 0 else None
+        "first_popular_item": _popularity[0] if pop_count > 0 else None,
+        "xgb_model_status": xgb_status # Novo campo
     }
 
 
