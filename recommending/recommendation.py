@@ -4,6 +4,30 @@ from training import training
 
 from training import training
 
+def get_hybrid_recommendations(user_id: str, count: int = 10):
+    """
+    Combina Content-Based, XGBoost e SVD em um ranking único.
+    """
+    # 1. Coleta recomendações de cada "especialista"
+    cb_recs = get_recommendations(user_id, count=count * 2) # Content-Based
+    svd_recs = recommend_svd(user_id, count=count * 2)      # Collaborative
+    
+    # 2. Sistema de Pontuação por Voto
+    scores = {}
+    
+    def apply_score(recs, weight):
+        for i, iid in enumerate(recs):
+            # Itens no topo da lista ganham mais pontos
+            score = (1.0 / (i + 1)) * weight
+            scores[iid] = scores.get(iid, 0.0) + score
+
+    apply_score(cb_recs, 1.0)  # Peso para gosto pessoal (features)
+    apply_score(svd_recs, 0.8) # Peso para comportamento de grupo
+    
+    # 3. Ordenação Final
+    sorted_recs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    return [str(item[0]) for item in sorted_recs[:count]]
+
 def get_recommendations(user_id: str, count: int = 10):
     
     training._load_cache_if_needed()
