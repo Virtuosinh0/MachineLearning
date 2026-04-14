@@ -1,30 +1,39 @@
 from db import get_db_connection
 from training.training import _load_cache_if_needed, _popularity, _item_df, _similarity_matrix, interaction_score
 from training import training
-
-from training import training
+from training.collaborative_training import recommend_svd
+from training.kmeans_training import recommend_with_kmeans
+from training.knn_training import recommend_with_knn
 
 def get_hybrid_recommendations(user_id: str, count: int = 10):
     """
-    Combina Content-Based, XGBoost e SVD em um ranking único.
+    Combina Content-Based, SVD, K-Means e KNN via Reciprocal Rank Fusion.
+
+    Pesos:
+      - Content-Based : 1.0  (similaridade por features do item)
+      - KNN           : 0.9  (vizinhos mais próximos no espaço de features)
+      - SVD           : 0.8  (comportamento coletivo / filtragem colaborativa)
+      - K-Means       : 0.6  (afinidade por cluster)
     """
-    # 1. Coleta recomendações de cada "especialista"
-    cb_recs = get_recommendations(user_id, count=count * 2) # Content-Based
-    svd_recs = recommend_svd(user_id, count=count * 2)      # Collaborative
-    
-    # 2. Sistema de Pontuação por Voto
+    pool = count * 2
+
+    cb_recs    = get_recommendations(user_id, count=pool)
+    knn_recs   = recommend_with_knn(user_id, count=pool)
+    svd_recs   = recommend_svd(user_id, count=pool)
+    kmeans_recs = recommend_with_kmeans(user_id, count=pool)
+
     scores = {}
-    
+
     def apply_score(recs, weight):
         for i, iid in enumerate(recs):
-            # Itens no topo da lista ganham mais pontos
             score = (1.0 / (i + 1)) * weight
             scores[iid] = scores.get(iid, 0.0) + score
 
-    apply_score(cb_recs, 1.0)  # Peso para gosto pessoal (features)
-    apply_score(svd_recs, 0.8) # Peso para comportamento de grupo
-    
-    # 3. Ordenação Final
+    apply_score(cb_recs,     1.0)
+    apply_score(knn_recs,    0.9)
+    apply_score(svd_recs,    0.8)
+    apply_score(kmeans_recs, 0.6)
+
     sorted_recs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     return [str(item[0]) for item in sorted_recs[:count]]
 

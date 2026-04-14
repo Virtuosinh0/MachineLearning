@@ -12,10 +12,10 @@ import platform
 import traceback
 
 from training.training import train_model, _load_cache_if_needed, _item_df, _popularity
-from training.xgboost_training import train_xgb
-from training.xgboost_training import load_xgb_model
-from recommending.recommendation import get_recommendations
-from training.xgboost_training import recommend_with_xgb
+from training.xgboost_training import train_xgb, load_xgb_model, recommend_with_xgb
+from training.kmeans_training import load_kmeans_model
+from training.knn_training import load_knn_model
+from recommending.recommendation import get_recommendations, get_hybrid_recommendations
 
 async def lifespan(app: FastAPI):
     print(f"--- INÍCIO LIFESPAN ---")
@@ -25,9 +25,19 @@ async def lifespan(app: FastAPI):
     print("ATENÇÃO: Treinamento desabilitado. Carregando modelos em cache (PKL) do disco...")
 
     try:
-        _load_cache_if_needed() 
+        _load_cache_if_needed()
     except Exception as e:
         print(f"Aviso: falha ao carregar modelos cacheados (training.py): {e}")
+
+    try:
+        load_kmeans_model()
+    except Exception as e:
+        print(f"Aviso: falha ao carregar modelo K-Means: {e}")
+
+    try:
+        load_knn_model()
+    except Exception as e:
+        print(f"Aviso: falha ao carregar modelo KNN: {e}")
 
     yield
     print("Aplicação encerrada.")
@@ -59,30 +69,29 @@ def diagnostic_data():
     item_count = len(_item_df) if _item_df is not None else 0
     pop_count = len(_popularity) if _popularity is not None else 0
     
-    xgb_status = "N/A (Falha ao carregar)"
-    xgb_model = load_xgb_model()
-    if xgb_model is not None:
-        xgb_status = "Carregado OK"
-    else:
-        print("[diagnostic] Tentativa de carregamento de XGBoost na requisição...")
-        load_xgb_model() 
-    # ---------------------------------------------
+    xgb_status    = "Carregado OK" if load_xgb_model()    is not None else "N/A (não encontrado)"
+    kmeans_status = "Carregado OK" if load_kmeans_model() is not None else "N/A (não encontrado)"
+    knn_status    = "Carregado OK" if load_knn_model()    is not None else "N/A (não encontrado)"
 
     if item_count == 0 or pop_count == 0:
         return {
             "status": "CRÍTICO: Dados de treinamento ausentes",
             "item_count": item_count,
             "popularity_count": pop_count,
-            "xgb_model_status": xgb_status, # Novo campo
+            "xgb_model_status": xgb_status,
+            "kmeans_model_status": kmeans_status,
+            "knn_model_status": knn_status,
             "detalhes": "Se 'item_count' for 0, o problema está na consulta SQL à tabela 'jewelries'. Se 'popularity_count' for 0, o problema está na tabela 'user_interaction'. Verifique o conteúdo do seu banco de dados no Railway."
         }
-    
+
     return {
         "status": "OK: Dados Carregados",
         "item_count": item_count,
         "popularity_count": pop_count,
         "first_popular_item": _popularity[0] if pop_count > 0 else None,
-        "xgb_model_status": xgb_status # Novo campo
+        "xgb_model_status": xgb_status,
+        "kmeans_model_status": kmeans_status,
+        "knn_model_status": knn_status,
     }
 
 
