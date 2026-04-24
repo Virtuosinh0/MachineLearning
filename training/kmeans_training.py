@@ -10,8 +10,10 @@ from utils.constants import MODEL_CACHE_PATH, KMEANS_N_CLUSTERS
 
 try:
     from sklearn.cluster import KMeans
+    from sklearn.metrics import silhouette_score
 except ImportError:
     KMeans = None
+    silhouette_score = None
     print("[kmeans_training] Aviso: sklearn não está instalado.")
 
 KMEANS_MODEL_FILE = os.path.join(MODEL_CACHE_PATH, "kmeans_model.pkl")
@@ -45,9 +47,16 @@ def train_kmeans(n_clusters: int = KMEANS_N_CLUSTERS, random_state: int = 42) ->
 
     os.makedirs(MODEL_CACHE_PATH, exist_ok=True)
     joblib.dump(model_data, KMEANS_MODEL_FILE)
+
+    silhouette = None
+    if silhouette_score is not None and n_clusters > 1:
+        sample = min(1000, len(X))
+        silhouette = float(silhouette_score(X, labels, metric='euclidean', sample_size=sample, random_state=42))
+
     print(f"[kmeans_training] Modelo salvo em: {KMEANS_MODEL_FILE}. "
-          f"Clusters: {n_clusters}, Inertia: {model.inertia_:.2f}")
-    return {"n_clusters": n_clusters, "inertia": float(model.inertia_)}
+          f"Clusters: {n_clusters}, Inertia: {model.inertia_:.2f}"
+          + (f", Silhouette: {silhouette:.4f} (-1=ruim, +1=ótimo)" if silhouette is not None else ""))
+    return {"n_clusters": n_clusters, "inertia": float(model.inertia_), "silhouette": silhouette}
 
 
 def load_kmeans_model() -> Optional[dict]:

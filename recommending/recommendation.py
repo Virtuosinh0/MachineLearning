@@ -1,3 +1,4 @@
+import numpy as np
 from db import get_db_connection
 from training.training import _load_cache_if_needed, _popularity, _item_df, _similarity_matrix, interaction_score
 from training import training
@@ -35,7 +36,41 @@ def get_hybrid_recommendations(user_id: str, count: int = 10):
     apply_score(kmeans_recs, 0.6)
 
     sorted_recs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    return [str(item[0]) for item in sorted_recs[:count]]
+    final_recs = [str(item[0]) for item in sorted_recs[:count]]
+
+    # --- Métricas de recomendação ---
+    print(f"\n--- [MÉTRICAS] AVALIAÇÃO DA RECOMENDAÇÃO HÍBRIDA ---")
+
+    # 1. Contribuição dos algoritmos
+    print(f"  [Contribuição] CB={len(cb_recs)}, KNN={len(knn_recs)}, "
+          f"SVD={len(svd_recs)}, K-Means={len(kmeans_recs)}, "
+          f"Candidatos únicos (RRF)={len(scores)}")
+
+    # 2. Cobertura do catálogo
+    total_items = len(training._item_df) if training._item_df is not None else None
+    if total_items:
+        coverage = len(scores) / total_items
+        print(f"  [Cobertura] {coverage:.1%} do catálogo coberto ({len(scores)}/{total_items} itens)")
+
+    # 3. Diversidade intra-lista (média das distâncias cosseno par-a-par)
+    if training._item_df is not None and len(final_recs) >= 2:
+        id_to_idx = {iid: idx for idx, iid in enumerate(training._item_df['id'].tolist())}
+        feature_cols = [c for c in training._item_df.columns if c != 'id']
+        indices = [id_to_idx[iid] for iid in final_recs if iid in id_to_idx]
+        if len(indices) >= 2:
+            vecs = training._item_df[feature_cols].values[indices].astype(float)
+            norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+            norms[norms == 0] = 1e-10
+            vecs_norm = vecs / norms
+            sim_matrix = np.dot(vecs_norm, vecs_norm.T)
+            n = len(indices)
+            upper_tri = sim_matrix[np.triu_indices(n, k=1)]
+            diversity = float(1.0 - np.mean(upper_tri))
+            print(f"  [Diversidade intra-lista] {diversity:.4f} (0=sem diversidade, 1=máxima diversidade)")
+
+    print(f"----------------------------------------------------\n")
+
+    return final_recs
 
 def get_recommendations(user_id: str, count: int = 10):
     

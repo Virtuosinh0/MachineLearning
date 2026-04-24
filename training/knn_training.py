@@ -37,6 +37,10 @@ def train_knn(n_neighbors: int = KNN_N_NEIGHBORS, metric: str = "cosine") -> dic
     model = NearestNeighbors(n_neighbors=n_neighbors, metric=metric, algorithm="brute", n_jobs=-1)
     model.fit(X)
 
+    # Mean neighbor distance (excludes self, which is always index 0)
+    distances, _ = model.kneighbors(X)
+    mean_neighbor_dist = float(np.mean(distances[:, 1:]))
+
     model_data = {
         "model": model,
         "item_ids": item_df['id'].tolist(),
@@ -47,8 +51,9 @@ def train_knn(n_neighbors: int = KNN_N_NEIGHBORS, metric: str = "cosine") -> dic
     os.makedirs(MODEL_CACHE_PATH, exist_ok=True)
     joblib.dump(model_data, KNN_MODEL_FILE)
     print(f"[knn_training] Modelo salvo em: {KNN_MODEL_FILE}. "
-          f"Vizinhos: {n_neighbors - 1}, Métrica: {metric}")
-    return {"n_neighbors": n_neighbors - 1, "metric": metric}
+          f"Vizinhos: {n_neighbors - 1}, Métrica: {metric}, "
+          f"Distância média entre vizinhos: {mean_neighbor_dist:.4f} (menor=itens mais similares)")
+    return {"n_neighbors": n_neighbors - 1, "metric": metric, "mean_neighbor_dist": mean_neighbor_dist}
 
 
 def load_knn_model() -> Optional[dict]:

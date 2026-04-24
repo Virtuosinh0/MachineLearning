@@ -30,21 +30,26 @@ def train_collaborative_svd():
         
         # Fatorização (k=faixas latentes)
         k = min(20, pivot_matrix.shape[1] - 1)
-        u, sigma, vt = svds(pivot_matrix.asfptype(), k=k)
-        sigma = np.diag(sigma)
-        
+        u, sigma_vals, vt = svds(pivot_matrix.asfptype(), k=k)
+        sigma = np.diag(sigma_vals)
+
         # Predição latente: U * Sigma * Vt
         predicted_ratings = np.dot(np.dot(u, sigma), vt)
-        
+
+        # Variância explicada pelos k fatores latentes
+        total_variance = float(pivot_matrix.power(2).sum())
+        explained_variance = float(np.sum(sigma_vals ** 2)) / total_variance if total_variance > 0 else 0.0
+
         model_data = {
             "ratings": predicted_ratings,
             "user_map": user_codes.cat.categories,
             "item_map": item_codes.cat.categories
         }
-        
+
         os.makedirs(MODEL_CACHE_PATH, exist_ok=True)
         joblib.dump(model_data, SVD_MODEL_FILE)
-        print(f"[svd_training] Modelo salvo em: {SVD_MODEL_FILE}")
+        print(f"[svd_training] Modelo salvo em: {SVD_MODEL_FILE}. "
+              f"Fatores latentes: {k}, Variância explicada: {explained_variance:.1%}")
     finally:
         conn.close()
 
