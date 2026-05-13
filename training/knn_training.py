@@ -131,12 +131,26 @@ def recommend_with_knn(user_id: str, count: int = 10) -> List[str]:
     sorted_candidates = sorted(candidate_scores.items(), key=lambda x: x[1], reverse=True)
     recommended = [iid for iid, _ in sorted_candidates if iid not in interacted_set][:count]
 
-    # Fallback por popularidade
+    fallback_count = 0
     if len(recommended) < count:
         for pid in (training._popularity or []):
             if pid not in recommended and pid not in interacted_set:
                 recommended.append(pid)
+                fallback_count += 1
             if len(recommended) >= count:
                 break
+
+    # --- Métricas KNN ---
+    print(f"\n--- [MÉTRICAS] KNN (K-Nearest Neighbors) ---")
+    seeds_resolved = sum(1 for it in user_interactions if it["jewelry_id"] in id_to_idx)
+    print(f"  [Seeds resolvidas]   {seeds_resolved}/{len(user_interactions)} interações encontradas no índice KNN")
+    print(f"  [Candidatos únicos]  {len(candidate_scores)} itens vizinhos encontrados")
+    if sorted_candidates:
+        top_scores = [sc for iid, sc in sorted_candidates if iid not in interacted_set][:count]
+        if top_scores:
+            print(f"  [Score médio top-{count}] {float(np.mean(top_scores)):.4f}  "
+                  f"(máx={float(max(top_scores)):.4f}, mín={float(min(top_scores)):.4f})")
+    print(f"  [Fallback popularidade] {fallback_count} itens preenchidos via popularidade")
+    print(f"--------------------------------------------\n")
 
     return recommended[:count]

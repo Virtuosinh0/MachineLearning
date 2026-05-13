@@ -55,14 +55,27 @@ def train_collaborative_svd():
 
 def recommend_svd(user_id: str, count: int = 10):
     if not os.path.exists(SVD_MODEL_FILE): return []
-    
+
     data = joblib.load(SVD_MODEL_FILE)
-    if user_id not in data["user_map"]: return []
-    
+
+    print(f"\n--- [MÉTRICAS] SVD (Filtragem Colaborativa) ---")
+    if user_id not in data["user_map"]:
+        print(f"  [Usuário no modelo] Não — sem histórico colaborativo; retornando vazio")
+        print(f"------------------------------------------------\n")
+        return []
+
     u_idx = list(data["user_map"]).index(user_id)
     u_ratings = data["ratings"][u_idx]
-    
-    # Ordena itens por score latente
+
     item_indices = np.argsort(u_ratings)[::-1]
     recs = [data["item_map"][i] for i in item_indices[:count]]
+
+    top_scores = u_ratings[item_indices[:count]]
+    print(f"  [Usuário no modelo]  Sim (índice {u_idx} de {len(data['user_map'])} usuários)")
+    print(f"  [Itens no modelo]    {len(data['item_map'])} itens com scores latentes")
+    print(f"  [Score latente top-1]    {float(top_scores[0]):.4f}")
+    print(f"  [Score latente top-{count}]   {float(top_scores[-1]):.4f}")
+    print(f"  [Score médio top-{count}]     {float(np.mean(top_scores)):.4f}")
+    print(f"------------------------------------------------\n")
+
     return recs

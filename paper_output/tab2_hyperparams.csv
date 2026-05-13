@@ -1,0 +1,7 @@
+﻿Modelo,Hiperparâmetros varridos (grade),Valor final escolhido,NDCG@10 (validação)
+CB (Content-Based),"Threshold de similaridade: {0,1; 0,2; 0,3; 0,5}",Sem corte (todos os itens ponderados por sim × score),0.2906
+KNN,"K ∈ {5, 10, 15, 20, 30}",K = 20  |  métrica = cosseno,0.2906
+K-Means,"k ∈ {5, 8, 10, 12, 15}",k = 10  |  n_init = 10,0.2766
+SVD,"Fatores latentes ∈ {5, 10, 15, 20}",k = 20 fatores latentes,0.0000
+XGBoost,"max_depth ∈ {3,4,5,6,8}; lr ∈ {0.01,0.05,0.1}; n_estimators ∈ {100,200,300,500}","max_depth=6 | lr=0,05 | n_estimators=300 | early_stop=25",0.0000
+Híbrido (RRF),"w₁,w₂,w₃,w₄ ∈ {0.5, 0.8, 1.0, 1.2, 1.5} (busca em grade)",w_CB=1.0 | w_KNN=1.0 | w_SVD=1.0 | w_KM=1.0,0.2906

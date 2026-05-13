@@ -11,33 +11,53 @@ import os
 import platform
 import traceback
 
-from training.training import train_model, _load_cache_if_needed, _item_df, _popularity
+from training import training as _training
+from training.training import train_model, _load_cache_if_needed
 from training.xgboost_training import train_xgb, load_xgb_model, recommend_with_xgb
-from training.kmeans_training import load_kmeans_model
-from training.knn_training import load_knn_model
+from training.kmeans_training import load_kmeans_model, train_kmeans, KMEANS_MODEL_FILE
+from training.knn_training import load_knn_model, train_knn, KNN_MODEL_FILE
 from recommending.recommendation import get_recommendations, get_hybrid_recommendations
 
 async def lifespan(app: FastAPI):
     print(f"--- INÍCIO LIFESPAN ---")
     print(f"Ambiente: OS={platform.system()}, Architecture={platform.machine()}")
     print(f"Variáveis de Ambiente (PGHOST, etc.): PGHOST={os.getenv('PGHOST', 'N/A')}")
-    
-    print("ATENÇÃO: Treinamento desabilitado. Carregando modelos em cache (PKL) do disco...")
 
     try:
         _load_cache_if_needed()
     except Exception as e:
         print(f"Aviso: falha ao carregar modelos cacheados (training.py): {e}")
 
-    try:
-        load_kmeans_model()
-    except Exception as e:
-        print(f"Aviso: falha ao carregar modelo K-Means: {e}")
+    if _training._item_df is None:
+        print("[lifespan] item_features.pkl não encontrado — treinando modelo Content-Based...")
+        try:
+            train_model()
+        except Exception as e:
+            print(f"Aviso: falha ao treinar modelo Content-Based: {e}")
 
-    try:
-        load_knn_model()
-    except Exception as e:
-        print(f"Aviso: falha ao carregar modelo KNN: {e}")
+    if not os.path.exists(KMEANS_MODEL_FILE):
+        print("[lifespan] kmeans_model.pkl não encontrado — treinando K-Means...")
+        try:
+            train_kmeans()
+        except Exception as e:
+            print(f"Aviso: falha ao treinar K-Means: {e}")
+    else:
+        try:
+            load_kmeans_model()
+        except Exception as e:
+            print(f"Aviso: falha ao carregar modelo K-Means: {e}")
+
+    if not os.path.exists(KNN_MODEL_FILE):
+        print("[lifespan] knn_model.pkl não encontrado — treinando KNN...")
+        try:
+            train_knn()
+        except Exception as e:
+            print(f"Aviso: falha ao treinar KNN: {e}")
+    else:
+        try:
+            load_knn_model()
+        except Exception as e:
+            print(f"Aviso: falha ao carregar modelo KNN: {e}")
 
     yield
     print("Aplicação encerrada.")

@@ -140,12 +140,23 @@ def recommend_with_kmeans(user_id: str, count: int = 10) -> List[str]:
     sorted_candidates = sorted(candidate_scores.items(), key=lambda x: x[1], reverse=True)
     recommended = [iid for iid, _ in sorted_candidates][:count]
 
-    # Fallback por popularidade
+    fallback_count = 0
     if len(recommended) < count:
         for pid in (training._popularity or []):
             if pid not in recommended and pid not in interacted_set:
                 recommended.append(pid)
+                fallback_count += 1
             if len(recommended) >= count:
                 break
+
+    # --- Métricas K-Means ---
+    print(f"\n--- [MÉTRICAS] K-MEANS ---")
+    print(f"  [Clusters engajados]  {len(cluster_weights)} cluster(s) a partir do histórico do usuário")
+    if cluster_weights:
+        dominant = max(cluster_weights, key=cluster_weights.get)
+        print(f"  [Cluster dominante]   cluster {dominant} (peso={cluster_weights[dominant]:.4f})")
+    print(f"  [Candidatos do cluster] {len(candidate_scores)} itens elegíveis")
+    print(f"  [Fallback popularidade] {fallback_count} itens preenchidos via popularidade")
+    print(f"--------------------------\n")
 
     return recommended[:count]

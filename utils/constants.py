@@ -18,3 +18,9 @@ PRICE_WEIGHT = 2.0
 
 KMEANS_N_CLUSTERS = 10
 KNN_N_NEIGHBORS = 20
+
+# Pesos do Reciprocal Rank Fusion no sistema híbrido (altere aqui para experimentar)
+RRF_WEIGHT_CB     = 1.0   # Content-Based (similaridade de features)
+RRF_WEIGHT_KNN    = 1.0   # KNN (vizinhos mais próximos)
+RRF_WEIGHT_SVD    = 1.0   # SVD (filtragem colaborativa)
+RRF_WEIGHT_KMEANS = 1.0   # K-Means (afinidade por cluster)

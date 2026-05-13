@@ -1,0 +1,5 @@
+﻿Modelo comparado,Δ Precision@10 (%),Δ Recall@10 (%),Δ NDCG@10 (%)
+CB,+0.0%,+0.0%,+0.0%
+KNN,+0.0%,+0.0%,+0.0%
+K-Means,+0.0%,+0.0%,+0.7%
+SVD,—,—,—

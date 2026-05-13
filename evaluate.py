@@ -481,8 +481,8 @@ def plot_kmeans(item_df):
 
     feat_cols = [c for c in item_df.columns if c != "id"]
     X = item_df[feat_cols].values.astype(float)
-    labels = kmeans_data["labels"]
     model = kmeans_data["model"]
+    labels = model.predict(X)  # recomputa com os dados atuais
     n_clusters = model.n_clusters
     cluster_colors = plt.cm.tab10(np.linspace(0, 1, n_clusters))
 
@@ -778,72 +778,144 @@ def plot_svd(interactions_df):
 def plot_hybrid(item_df):
     print("\n[7/7] Sistema Híbrido (RRF)...")
 
-    fig = plt.figure(figsize=(18, 11))
+    try:
+        from utils.constants import (RRF_WEIGHT_CB, RRF_WEIGHT_KNN,
+                                     RRF_WEIGHT_SVD, RRF_WEIGHT_KMEANS,
+                                     HALF_LIFE_DAYS, TYPE_WEIGHTS)
+    except ImportError:
+        RRF_WEIGHT_CB = RRF_WEIGHT_KNN = RRF_WEIGHT_SVD = RRF_WEIGHT_KMEANS = 1.0
+        HALF_LIFE_DAYS = 30.0
+        TYPE_WEIGHTS = {"ignored": -0.1, "click": 1.0, "shopping_cart": 3.0, "bought": 5.0}
+
+    ALGOS   = ["Content-Based\n(CB)", "KNN", "SVD\n(Colaborativo)", "K-Means"]
+    WEIGHTS = [RRF_WEIGHT_CB, RRF_WEIGHT_KNN, RRF_WEIGHT_SVD, RRF_WEIGHT_KMEANS]
+    ALGO_COLORS = PALETTE[:4]
+
+    fig = plt.figure(figsize=(18, 14))
     fig.suptitle(
         "Sistema Híbrido de Recomendação — Reciprocal Rank Fusion (RRF)",
         fontsize=16, fontweight="bold", y=0.99,
     )
-    gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.45, wspace=0.38)
+    gs = gridspec.GridSpec(3, 3, figure=fig, hspace=0.55, wspace=0.38)
 
-    ALGOS = ["Content-Based\n(CB)", "KNN", "SVD\n(Colaborativo)", "K-Means"]
-    WEIGHTS = [1.0, 0.9, 0.8, 0.6]
-    ALGO_COLORS = PALETTE[:4]
+    # ── Linha 0: pesos atuais / score por posição / status dos modelos ────────
 
-    # Pesos dos algoritmos
+    # Pesos atuais (lidos de constants.py)
     ax = fig.add_subplot(gs[0, 0])
+    w_max = max(max(WEIGHTS), 1.0)
     bars = ax.bar(ALGOS, WEIGHTS, color=ALGO_COLORS, edgecolor="white", width=0.6)
     for bar, w in zip(bars, WEIGHTS):
-        ax.text(bar.get_x() + bar.get_width() / 2, w + 0.01,
-                f"{w:.1f}", ha="center", va="bottom", fontweight="bold", fontsize=12)
-    ax.set_title("Pesos dos Algoritmos no RRF", fontweight="bold")
-    ax.set_ylabel("Peso")
-    ax.set_ylim(0, 1.25)
-    ax.axhline(1.0, color="gray", linestyle=":", lw=1)
+        ax.text(bar.get_x() + bar.get_width() / 2, w + w_max * 0.02,
+                f"{w:.2f}", ha="center", va="bottom", fontweight="bold", fontsize=11)
+    ax.set_title("Pesos Atuais dos Algoritmos\n(constants.py → RRF_WEIGHT_*)",
+                 fontweight="bold")
+    ax.set_ylabel("Peso RRF")
+    ax.set_ylim(0, w_max * 1.25)
+    ax.axhline(1.0, color="gray", linestyle=":", lw=1, alpha=0.6)
 
-    # Score RRF por posição para cada algoritmo
+    # Score RRF por posição (com os pesos atuais)
     ax = fig.add_subplot(gs[0, 1])
     positions = np.arange(1, 21)
     for name, w, color in zip(ALGOS, WEIGHTS, ALGO_COLORS):
         ax.plot(positions, (1.0 / positions) * w, marker="o", ms=3, lw=2,
-                label=name.replace("\n", " "), color=color)
-    ax.set_title("Score RRF por Posição na Lista\n[score = (1/pos) × peso]",
-                 fontweight="bold")
-    ax.set_xlabel("Posição na Lista de Recomendações")
-    ax.set_ylabel("Score RRF")
-    ax.legend(fontsize=8)
+                label=f"{name.replace(chr(10),' ')} (w={w:.2f})", color=color)
+    ax.set_title("Score RRF por Posição\n[score = (1/pos) × peso]", fontweight="bold")
+    ax.set_xlabel("Posição na lista do algoritmo")
+    ax.set_ylabel("Contribuição ao score final")
+    ax.legend(fontsize=7)
     ax.grid(True, alpha=0.4)
 
     # Status dos arquivos de modelo
     ax = fig.add_subplot(gs[0, 2])
     MODEL_FILES = {
-        "item_features.pkl": "Features dos Itens",
-        "similarity_matrix.pkl": "Similaridade (CB)",
-        "xgb_model.pkl": "XGBoost",
-        "kmeans_model.pkl": "K-Means",
-        "knn_model.pkl": "KNN",
-        "svd_model.pkl": "SVD Colaborativo",
-        "popularity.pkl": "Popularidade (fallback)",
+        "item_features.pkl":    "Features dos Itens",
+        "similarity_matrix.pkl":"Similaridade (CB)",
+        "xgb_model.pkl":        "XGBoost",
+        "kmeans_model.pkl":     "K-Means",
+        "knn_model.pkl":        "KNN",
+        "svd_model.pkl":        "SVD Colaborativo",
+        "popularity.pkl":       "Popularidade (fallback)",
     }
-    f_labels, f_sizes, f_colors = [], [], []
+    f_labels, f_sizes, f_colors_bar = [], [], []
     for fname, label in MODEL_FILES.items():
         path = os.path.join(MODEL_CACHE_PATH, fname)
         size = os.path.getsize(path) / 1024 if os.path.exists(path) else 0
         f_labels.append(label)
         f_sizes.append(max(size, 0.1))
-        f_colors.append("#2ecc71" if size > 0 else "#e74c3c")
-    bars2 = ax.barh(range(len(f_labels)), f_sizes, color=f_colors, edgecolor="white")
-    for i, (bar, size) in enumerate(zip(bars2, f_sizes)):
+        f_colors_bar.append("#2ecc71" if size > 0 else "#e74c3c")
+    bars2 = ax.barh(range(len(f_labels)), f_sizes, color=f_colors_bar, edgecolor="white")
+    for bar, size in zip(bars2, f_sizes):
         text = f"{size:.0f} KB" if size > 0.1 else "AUSENTE"
         ax.text(bar.get_width() + 0.5, bar.get_y() + bar.get_height() / 2,
                 text, va="center", fontsize=8)
     ax.set_yticks(range(len(f_labels)))
     ax.set_yticklabels(f_labels, fontsize=8)
-    ax.set_title("Status dos Modelos Salvos\n(verde=disponível | vermelho=ausente)",
-                 fontweight="bold")
+    ax.set_title("Status dos Modelos Salvos\n(verde=OK | vermelho=ausente)", fontweight="bold")
     ax.set_xlabel("Tamanho (KB)")
 
-    # Simulação de contribuição RRF — ocupa 2 colunas
-    ax = fig.add_subplot(gs[1, 0:2])
+    # ── Linha 1: sensibilidade dos pesos ──────────────────────────────────────
+
+    weight_range = np.linspace(0.0, 2.0, 80)
+    # Posições representativas na lista do algoritmo
+    POSITIONS = [1, 3, 5, 10, 20]
+    POOL = 20   # tamanho do pool (count*2)
+
+    for col_idx, (algo_name, base_w, color) in enumerate(zip(ALGOS[:3], WEIGHTS[:3], ALGO_COLORS[:3])):
+        ax = fig.add_subplot(gs[1, col_idx])
+        for pos in POSITIONS:
+            rrf_vals = [(1.0 / pos) * w for w in weight_range]
+            ax.plot(weight_range, rrf_vals, lw=1.8,
+                    label=f"posição {pos}",
+                    linestyle="-" if pos <= 5 else "--")
+        ax.axvline(base_w, color="red", linestyle="--", lw=1.5,
+                   label=f"atual ({base_w:.2f})")
+        ax.set_title(f"Sensibilidade: {algo_name.replace(chr(10), ' ')}\n"
+                     f"score = (1/posição) × peso", fontweight="bold")
+        ax.set_xlabel("Peso do algoritmo")
+        ax.set_ylabel("Contribuição ao score RRF")
+        ax.legend(fontsize=7)
+        ax.grid(True, alpha=0.35)
+
+    # ── Linha 2: dominância relativa e simulação de contribuição ──────────────
+
+    # Dominância: para cada peso variado isoladamente, % de itens que um algoritmo
+    # coloca no top-10 final (simulação com rankings aleatórios, 500 runs)
+    ax = fig.add_subplot(gs[2, 0])
+    np.random.seed(42)
+    N_RUNS = 300
+    TOP_N  = 10
+    w_steps = np.linspace(0.1, 2.0, 20)
+
+    for algo_idx, (algo_name, base_w, color) in enumerate(zip(ALGOS, WEIGHTS, ALGO_COLORS)):
+        dom_vals = []
+        for test_w in w_steps:
+            trial_weights = list(WEIGHTS)
+            trial_weights[algo_idx] = test_w
+            count_in_top = 0
+            for _ in range(N_RUNS):
+                all_ranks = [np.random.permutation(POOL) for _ in range(4)]
+                item_scores = np.zeros(POOL)
+                for r, w in zip(all_ranks, trial_weights):
+                    for item_i, rank in enumerate(r):
+                        item_scores[item_i] += (1.0 / (rank + 1)) * w
+                top_items = set(np.argsort(item_scores)[::-1][:TOP_N])
+                algo_items = set(np.where(all_ranks[algo_idx] < TOP_N)[0])
+                count_in_top += len(top_items & algo_items)
+            dom_vals.append(count_in_top / (N_RUNS * TOP_N))
+        ax.plot(w_steps, dom_vals, lw=2, color=color,
+                label=algo_name.replace("\n", " "), marker="o", ms=3)
+    for algo_idx, (base_w, color) in enumerate(zip(WEIGHTS, ALGO_COLORS)):
+        ax.axvline(base_w, color=color, linestyle=":", lw=1, alpha=0.5)
+    ax.set_title(f"Dominância Simulada: % top-{TOP_N} ocupado\nao variar peso de cada algoritmo",
+                 fontweight="bold")
+    ax.set_xlabel("Peso do algoritmo variado")
+    ax.set_ylabel(f"Fração média do top-{TOP_N}")
+    ax.legend(fontsize=7)
+    ax.grid(True, alpha=0.35)
+    ax.set_ylim(0, 1)
+
+    # Contribuição RRF com pesos atuais (simulação fixa)
+    ax = fig.add_subplot(gs[2, 1])
     np.random.seed(0)
     N = 15
     all_ranks = [np.random.permutation(N) for _ in WEIGHTS]
@@ -851,7 +923,6 @@ def plot_hybrid(item_df):
     for ranks, w in zip(all_ranks, WEIGHTS):
         for item_i, rank in enumerate(ranks):
             rrf_total[item_i] += (1.0 / (rank + 1)) * w
-
     order = np.argsort(rrf_total)[::-1]
     x = np.arange(N)
     width = 0.18
@@ -861,30 +932,25 @@ def plot_hybrid(item_df):
                color=color, edgecolor="white", alpha=0.85)
     ax.plot(x + 1.5 * width, rrf_total[order], "k--o", ms=4, lw=1.5,
             label="Score RRF Total", zorder=5)
-    ax.set_title(
-        "Simulação: Contribuição de Cada Algoritmo para o Score RRF Final\n"
-        "(rankings aleatórios | itens ordenados pelo score total)",
-        fontweight="bold",
-    )
-    ax.set_xlabel("Item (ordem decrescente de score RRF)")
-    ax.set_ylabel("Score RRF por Algoritmo")
+    ax.set_title("Simulação: Contribuição por Algoritmo\n(rankings aleatórios, pesos atuais)",
+                 fontweight="bold")
+    ax.set_xlabel("Item (ranking final decrescente)")
+    ax.set_ylabel("Score RRF")
     ax.set_xticks(x + 1.5 * width)
     ax.set_xticklabels([f"#{i+1}" for i in range(N)], fontsize=7)
-    ax.legend(fontsize=8, loc="upper right")
+    ax.legend(fontsize=7, loc="upper right")
 
-    # Decay temporal dos scores de interação
-    ax = fig.add_subplot(gs[1, 2])
+    # Decay temporal
+    ax = fig.add_subplot(gs[2, 2])
     days_range = np.linspace(0, 120, 300)
-    HALF_LIFE = 30.0
-    lam = math.log(2) / HALF_LIFE
-    TYPE_W = {"ignored": -0.1, "click": 1.0, "shopping_cart": 3.0, "bought": 5.0}
-    for (itype, base), color in zip(TYPE_W.items(), PALETTE[:4]):
-        scores = [base * math.exp(-lam * d) for d in days_range]
-        ax.plot(days_range, scores, lw=2, label=f"{itype} (base={base})", color=color)
+    lam = math.log(2) / HALF_LIFE_DAYS
+    for (itype, base), color in zip(TYPE_WEIGHTS.items(), PALETTE[:4]):
+        scores_decay = [base * math.exp(-lam * d) for d in days_range]
+        ax.plot(days_range, scores_decay, lw=2, label=f"{itype} (base={base})", color=color)
     ax.axhline(0, color="gray", linestyle="--", lw=1, alpha=0.5)
-    ax.axvline(HALF_LIFE, color="gray", linestyle=":", lw=1, alpha=0.7,
-               label=f"Meia-vida ({HALF_LIFE:.0f}d)")
-    ax.set_title("Decay Temporal dos Scores de Interação\n(half_life = 30 dias)",
+    ax.axvline(HALF_LIFE_DAYS, color="gray", linestyle=":", lw=1.2, alpha=0.7,
+               label=f"Meia-vida ({HALF_LIFE_DAYS:.0f}d)")
+    ax.set_title(f"Decay Temporal dos Scores\n(HALF_LIFE_DAYS = {HALF_LIFE_DAYS:.0f})",
                  fontweight="bold")
     ax.set_xlabel("Dias desde a interação")
     ax.set_ylabel("Score (base × decay)")
@@ -898,19 +964,51 @@ def plot_hybrid(item_df):
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
+def try_refresh_live_data():
+    """
+    Busca dados frescos do banco e recomputa item_df, similarity_matrix e popularity.
+    Retorna (item_df, sim_matrix, popularity) ou (None, None, None) se o DB falhar.
+    """
+    try:
+        from training.training import load_items_from_db, compute_item_similarity, compute_popularity
+        print("  Recomputando item_df a partir do banco...")
+        item_df = load_items_from_db()
+        if item_df is None or item_df.empty:
+            return None, None, None
+        print(f"  item_df recomputado: {len(item_df)} itens")
+
+        print("  Recomputando similarity_matrix...")
+        sim_matrix = compute_item_similarity(item_df)
+
+        print("  Recomputando popularity...")
+        popularity = compute_popularity()
+
+        return item_df, sim_matrix, popularity
+    except Exception as e:
+        print(f"  [AVISO] Falha ao buscar dados frescos do banco: {e}")
+        return None, None, None
+
+
 def main():
     print("=" * 62)
     print("  AVALIAÇÃO DOS MODELOS DE RECOMENDAÇÃO DE JOIAS")
     print("=" * 62)
     print(f"  Saída: {OUTPUT_DIR}\n")
 
-    # Carrega modelos do disco
-    print("[MODELOS] Carregando artefatos salvos...")
-    item_df = load_model(ITEM_FEATURES_PATH)
-    sim_matrix = load_model(os.path.join(MODEL_CACHE_PATH, "similarity_matrix.pkl"))
-    popularity = load_model(POPULARITY_PATH)
+    # Busca dados frescos do banco; fallback para cache em disco
+    print("[DADOS] Buscando dados atualizados do banco...")
+    item_df, sim_matrix, popularity = try_refresh_live_data()
+
+    if item_df is None:
+        print("  DB indisponível — carregando artefatos salvos em disco...")
+        item_df   = load_model(ITEM_FEATURES_PATH)
+        sim_matrix = load_model(os.path.join(MODEL_CACHE_PATH, "similarity_matrix.pkl"))
+        popularity = load_model(POPULARITY_PATH)
+    else:
+        print("  Dados frescos carregados com sucesso.")
 
     status = lambda v, extra="": f"OK ({extra})" if v is not None else "AUSENTE"
+    print(f"\n[MODELOS] Status dos artefatos:")
     print(f"  item_df          : {status(item_df, f'{len(item_df)} itens' if item_df is not None else '')}")
     print(f"  similarity_matrix: {status(sim_matrix, f'{sim_matrix.shape}' if sim_matrix is not None else '')}")
     print(f"  popularity       : {status(popularity, f'{len(popularity)} itens' if popularity is not None else '')}")
@@ -919,15 +1017,15 @@ def main():
     print(f"  knn_model        : {status(load_model(os.path.join(MODEL_CACHE_PATH, 'knn_model.pkl')))}")
     print(f"  svd_model        : {status(load_model(os.path.join(MODEL_CACHE_PATH, 'svd_model.pkl')))}")
 
-    # Tenta banco de dados
-    print("\n[BANCO] Buscando dados...")
+    # Busca interações e itens brutos do banco
+    print("\n[BANCO] Buscando interações e itens brutos...")
     interactions_df = try_get_interactions()
     raw_items_df = try_get_raw_items()
     if interactions_df is not None:
         print(f"  interactions: {len(interactions_df)} linhas  |  "
               f"usuários únicos: {interactions_df['user_id'].nunique()}")
     else:
-        print("  DB indisponível — gráficos dependentes de interações serão omitidos/simplificados.")
+        print("  Interações indisponíveis — gráficos dependentes serão omitidos/simplificados.")
     if raw_items_df is not None:
         print(f"  raw_items   : {len(raw_items_df)} itens")
 

@@ -1,0 +1,14 @@
+﻿Indicador,Valor
+Número total de joias no catálogo,1967
+Número total de usuários,4
+Número total de interações,39
+Densidade da matriz usuário-item (%),0.4957%
+Data inicial do histórico,2026-02-17
+Data final do histórico,2026-05-12
+Tipos de joia distintos,6
+Metais distintos,6
+Pedras distintas,19
+Usuários elegíveis (≥ 3 interações),4
+Interações no conjunto de treino,31
+Usuários no conjunto de validação,4
+Usuários no conjunto de teste,4

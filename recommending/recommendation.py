@@ -5,22 +5,19 @@ from training import training
 from training.collaborative_training import recommend_svd
 from training.kmeans_training import recommend_with_kmeans
 from training.knn_training import recommend_with_knn
+from utils.constants import RRF_WEIGHT_CB, RRF_WEIGHT_KNN, RRF_WEIGHT_SVD, RRF_WEIGHT_KMEANS
 
 def get_hybrid_recommendations(user_id: str, count: int = 10):
     """
     Combina Content-Based, SVD, K-Means e KNN via Reciprocal Rank Fusion.
-
-    Pesos:
-      - Content-Based : 1.0  (similaridade por features do item)
-      - KNN           : 0.9  (vizinhos mais próximos no espaço de features)
-      - SVD           : 0.8  (comportamento coletivo / filtragem colaborativa)
-      - K-Means       : 0.6  (afinidade por cluster)
+    Pesos configurados em utils/constants.py:
+      RRF_WEIGHT_CB, RRF_WEIGHT_KNN, RRF_WEIGHT_SVD, RRF_WEIGHT_KMEANS
     """
     pool = count * 2
 
-    cb_recs    = get_recommendations(user_id, count=pool)
-    knn_recs   = recommend_with_knn(user_id, count=pool)
-    svd_recs   = recommend_svd(user_id, count=pool)
+    cb_recs     = get_recommendations(user_id, count=pool)
+    knn_recs    = recommend_with_knn(user_id, count=pool)
+    svd_recs    = recommend_svd(user_id, count=pool)
     kmeans_recs = recommend_with_kmeans(user_id, count=pool)
 
     scores = {}
@@ -30,10 +27,10 @@ def get_hybrid_recommendations(user_id: str, count: int = 10):
             score = (1.0 / (i + 1)) * weight
             scores[iid] = scores.get(iid, 0.0) + score
 
-    apply_score(cb_recs,     1.0)
-    apply_score(knn_recs,    0.9)
-    apply_score(svd_recs,    0.8)
-    apply_score(kmeans_recs, 0.6)
+    apply_score(cb_recs,     RRF_WEIGHT_CB)
+    apply_score(knn_recs,    RRF_WEIGHT_KNN)
+    apply_score(svd_recs,    RRF_WEIGHT_SVD)
+    apply_score(kmeans_recs, RRF_WEIGHT_KMEANS)
 
     sorted_recs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     final_recs = [str(item[0]) for item in sorted_recs[:count]]
@@ -145,10 +142,27 @@ def get_recommendations(user_id: str, count: int = 10):
 
     print("-------------------------------------------------\n")
     
-    recommended = [iid for iid, sc in sorted_candidates if iid not in interacted_set][:count]
+    recommended = [iid for iid, _ in sorted_candidates if iid not in interacted_set][:count]
+
+    fallback_count = 0
     if len(recommended) < count:
         for pid in (training._popularity or []):
             if pid not in recommended and pid not in interacted_set:
                 recommended.append(pid)
+                fallback_count += 1
             if len(recommended) >= count: break
+
+    # --- Métricas Content-Based ---
+    print(f"\n--- [MÉTRICAS] CONTENT-BASED FILTERING ---")
+    seeds_resolved = sum(1 for sid in seed_scores if sid in id_to_idx)
+    print(f"  [Seeds]      {seeds_resolved}/{len(seed_scores)} interações resolvidas na matriz de features")
+    print(f"  [Candidatos] {len(candidate_scores)} itens únicos gerados por similaridade de cosseno")
+    if sorted_candidates:
+        top_scores = [sc for iid, sc in sorted_candidates if iid not in interacted_set][:count]
+        if top_scores:
+            print(f"  [Score médio top-{count}] {float(np.mean(top_scores)):.4f}  "
+                  f"(máx={float(max(top_scores)):.4f}, mín={float(min(top_scores)):.4f})")
+    print(f"  [Fallback popularidade] {fallback_count} itens preenchidos via popularidade")
+    print(f"------------------------------------------\n")
+
     return recommended[:count]

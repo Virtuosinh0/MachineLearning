@@ -227,14 +227,28 @@ def recommend_with_xgb(user_id: str, count: int = 10) -> List[str]:
     cand_df["pred_score"] = preds
     cand_df["id_str"] = cand_df["id"].astype(str)
 
-    top = cand_df.sort_values("pred_score", ascending=False).head(count)["id_str"].tolist()
+    top_df = cand_df.sort_values("pred_score", ascending=False).head(count)
+    top = top_df["id_str"].tolist()
 
+    fallback_count = 0
     if len(top) < count:
         for pid in (training._popularity or []):
             if pid not in top and pid not in interacted_set:
                 top.append(pid)
+                fallback_count += 1
             if len(top) >= count:
                 break
+
+    # --- Métricas XGBoost ---
+    print(f"\n--- [MÉTRICAS] XGBOOST ---")
+    print(f"  [Candidatos avaliados] {len(cand_df)} itens sem interação do usuário")
+    if not top_df.empty:
+        scores = top_df["pred_score"].values
+        print(f"  [Score predito top-1]   {float(scores[0]):.4f}")
+        print(f"  [Score predito top-{count}]  {float(scores[-1]):.4f}")
+        print(f"  [Score médio top-{count}]    {float(scores.mean()):.4f}")
+    print(f"  [Fallback popularidade] {fallback_count} itens preenchidos via popularidade")
+    print(f"--------------------------\n")
 
     return top[:count]
 
