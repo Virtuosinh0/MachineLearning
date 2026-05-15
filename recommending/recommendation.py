@@ -1,6 +1,5 @@
 import numpy as np
 from db import get_db_connection
-from training.training import _load_cache_if_needed, _popularity, _item_df, _similarity_matrix, interaction_score
 from training import training
 from training.collaborative_training import recommend_svd
 from training.kmeans_training import recommend_with_kmeans

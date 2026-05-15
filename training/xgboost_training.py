@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.metrics import root_mean_squared_error, mean_absolute_error
 from sklearn.preprocessing import LabelEncoder
 
 from db import get_db_connection
@@ -158,7 +158,7 @@ def train_xgb(limit_days: Optional[int] = 365,
     )
 
     preds = model.predict(X_test)
-    rmse = mean_squared_error(y_test, preds, squared=False)
+    rmse = root_mean_squared_error(y_test, preds)
     mae = mean_absolute_error(y_test, preds)
 
     result = {
