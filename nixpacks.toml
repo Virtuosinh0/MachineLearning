@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["python311", "python311Packages.pip"]
+nixPkgs = ["python314", "python314Packages.pip"]
 aptPackages = [
   "build-essential",
   "python3-dev",
