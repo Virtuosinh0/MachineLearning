@@ -961,6 +961,674 @@ def plot_hybrid(item_df):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# TABELA 1 — Estatísticas do Dataset
+# ══════════════════════════════════════════════════════════════════════════════
+
+PAPER_DIR = os.path.join(ROOT, "paper_output")
+
+
+def _split_train_val_test(interactions_df):
+    """
+    Aplica filtro de usuários com ≥ 3 interações e divide por tempo:
+      - teste     : última interação de cada usuário elegível
+      - validação : penúltima interação de cada usuário elegível
+      - treino    : demais interações dos usuários elegíveis
+
+    Retorna (train_df, val_df, test_df, eligible_users).
+    """
+    counts = interactions_df.groupby("user_id")["jewelry_id"].count()
+    eligible = counts[counts >= 3].index
+    df = interactions_df[interactions_df["user_id"].isin(eligible)].copy()
+    df = df.sort_values(["user_id", "created_at"])
+
+    test_idx = df.groupby("user_id").tail(1).index
+    remaining = df.drop(index=test_idx)
+    val_idx = remaining.groupby("user_id").tail(1).index
+
+    test_df  = df.loc[test_idx]
+    val_df   = remaining.loc[val_idx]
+    train_df = remaining.drop(index=val_idx)
+
+    return train_df, val_df, test_df, eligible
+
+
+def _build_rankers(item_df, train_eval_df, sim_matrix, cb_threshold=None):
+    """
+    Retorna dict {nome_modelo: rank_fn(uid) -> list[item_id]}.
+    train_eval_df é o histórico visível do modelo (treino ou treino+val).
+    """
+    id_list   = item_df["id"].tolist()
+    id_to_idx = {iid: i for i, iid in enumerate(id_list)}
+
+    def seed_scores(uid):
+        ss = {}
+        for _, r in train_eval_df[train_eval_df["user_id"] == uid].iterrows():
+            iid = str(r["jewelry_id"])
+            ss[iid] = ss.get(iid, 0.0) + interaction_score(r)
+        return ss
+
+    def rank_cb(uid):
+        ss = seed_scores(uid)
+        interacted = set(ss)
+        cand = {}
+        for sid, w in ss.items():
+            if sid not in id_to_idx:
+                continue
+            sidx = id_to_idx[sid]
+            for idx, sv in enumerate(sim_matrix[sidx]):
+                if cb_threshold is not None and sv < cb_threshold:
+                    continue
+                iid = id_list[idx]
+                if iid in interacted:
+                    continue
+                cand[iid] = cand.get(iid, 0.0) + sv * w
+        return sorted(cand, key=cand.get, reverse=True)
+
+    knn_data = load_model(os.path.join(MODEL_CACHE_PATH, "knn_model.pkl"))
+
+    def rank_knn(uid):
+        if knn_data is None:
+            return []
+        ss = seed_scores(uid)
+        interacted = set(ss)
+        knn_ids  = knn_data["item_ids"]
+        knn_idx  = {iid: i for i, iid in enumerate(knn_ids)}
+        X_knn    = knn_data["X"]
+        model_knn = knn_data["model"]
+        cand = {}
+        for sid, w in ss.items():
+            if sid not in knn_idx:
+                continue
+            vec = X_knn[knn_idx[sid]].reshape(1, -1)
+            dists, indices = model_knn.kneighbors(vec)
+            for dist, ni in zip(dists[0], indices[0]):
+                nb = knn_ids[ni]
+                if nb in interacted:
+                    continue
+                cand[nb] = cand.get(nb, 0.0) + (1.0 - dist) * w
+        return sorted(cand, key=cand.get, reverse=True)
+
+    km_data = load_model(os.path.join(MODEL_CACHE_PATH, "kmeans_model.pkl"))
+
+    def rank_kmeans(uid):
+        if km_data is None:
+            return []
+        ss = seed_scores(uid)
+        interacted = set(ss)
+        id_to_cl = dict(zip(km_data["item_ids"], km_data["labels"]))
+        cw = {}
+        for sid, w in ss.items():
+            cl = id_to_cl.get(sid)
+            if cl is not None:
+                cw[cl] = cw.get(cl, 0.0) + w
+        cand = {iid: cw[id_to_cl[iid]]
+                for iid in km_data["item_ids"]
+                if iid not in interacted and id_to_cl.get(iid) in cw}
+        return sorted(cand, key=cand.get, reverse=True)
+
+    svd_data = load_model(os.path.join(MODEL_CACHE_PATH, "svd_model.pkl"))
+
+    def rank_svd(uid):
+        if svd_data is None:
+            return []
+        user_map = list(svd_data["user_map"])
+        if uid not in user_map:
+            return []
+        u_idx   = user_map.index(uid)
+        ratings = svd_data["ratings"][u_idx]
+        return [str(svd_data["item_map"][i]) for i in np.argsort(ratings)[::-1]]
+
+    xgb_model = load_model(os.path.join(MODEL_CACHE_PATH, "xgb_model.pkl"))
+
+    def rank_xgb(uid):
+        if xgb_model is None:
+            return []
+        interacted = set(seed_scores(uid))
+        feat_cols = [c for c in item_df.columns if c != "id"]
+        preds  = xgb_model.predict(item_df[feat_cols].values.astype(float))
+        ranked = [id_list[i] for i in np.argsort(preds)[::-1]]
+        return [iid for iid in ranked if iid not in interacted]
+
+    try:
+        from utils.constants import (RRF_WEIGHT_CB, RRF_WEIGHT_KNN,
+                                     RRF_WEIGHT_SVD, RRF_WEIGHT_KMEANS)
+    except ImportError:
+        RRF_WEIGHT_CB = RRF_WEIGHT_KNN = RRF_WEIGHT_SVD = RRF_WEIGHT_KMEANS = 1.0
+
+    def rank_rrf(uid):
+        rankings = [
+            (rank_cb(uid),     RRF_WEIGHT_CB),
+            (rank_knn(uid),    RRF_WEIGHT_KNN),
+            (rank_svd(uid),    RRF_WEIGHT_SVD),
+            (rank_kmeans(uid), RRF_WEIGHT_KMEANS),
+        ]
+        scores = {}
+        for ranked, w in rankings:
+            for i, iid in enumerate(ranked):
+                scores[iid] = scores.get(iid, 0.0) + (1.0 / (i + 1)) * w
+        return sorted(scores, key=scores.get, reverse=True)
+
+    return {
+        "CB (Content-Based)": rank_cb,
+        "KNN":                 rank_knn,
+        "K-Means":             rank_kmeans,
+        "SVD (Colaborativo)":  rank_svd,
+        "XGBoost":             rank_xgb,
+        "Hibrido (RRF)":       rank_rrf,
+    }
+
+
+def _eval_metrics(rankers, eval_df, k=10):
+    """
+    Computa Precision@k, Recall@k e NDCG@k para cada modelo em eval_df.
+    Assume 1 item relevante por usuário (leave-one-out).
+    Retorna dict {modelo: {"precision": float, "recall": float, "ndcg": float}}.
+    """
+    results = {name: {"precision": [], "recall": [], "ndcg": []} for name in rankers}
+
+    for uid, grp in eval_df.groupby("user_id"):
+        rel = str(grp.iloc[0]["jewelry_id"])
+        for name, rank_fn in rankers.items():
+            top_k = rank_fn(uid)[:k]
+            hit   = rel in top_k
+            rank  = (top_k.index(rel) + 1) if hit else None
+            results[name]["precision"].append(1 / k if hit else 0.0)
+            results[name]["recall"].append(1.0 if hit else 0.0)
+            results[name]["ndcg"].append(1.0 / np.log2(rank + 1) if hit else 0.0)
+
+    return {
+        name: {m: float(np.mean(v)) for m, v in metrics.items()}
+        for name, metrics in results.items()
+    }
+
+
+def generate_model_comparison(item_df, interactions_df, sim_matrix, cb_threshold=None):
+    """Avalia todos os modelos no conjunto de teste e gera tab3_model_comparison.csv."""
+    print("\n[TAB3] Gerando comparação de modelos (conjunto de teste)...")
+    os.makedirs(PAPER_DIR, exist_ok=True)
+
+    if interactions_df is None or item_df is None or sim_matrix is None:
+        print("  [SKIP] Dados insuficientes.")
+        return None
+
+    train_df, val_df, test_df, _ = _split_train_val_test(interactions_df)
+    if test_df.empty:
+        print("  [SKIP] Conjunto de teste vazio.")
+        return None
+
+    # Modelo vê treino + validação (tudo exceto a última interação)
+    train_eval_df = pd.concat([train_df, val_df], ignore_index=True)
+    rankers = _build_rankers(item_df, train_eval_df, sim_matrix, cb_threshold=cb_threshold)
+    metrics = _eval_metrics(rankers, test_df)
+
+    rows = [
+        (name,
+         f"{m['precision']:.4f}",
+         f"{m['recall']:.4f}",
+         f"{m['ndcg']:.4f}")
+        for name, m in metrics.items()
+    ]
+    tab3 = pd.DataFrame(rows, columns=["Modelo", "Precision@10", "Recall@10", "NDCG@10"])
+    tab3.to_csv(os.path.join(PAPER_DIR, "tab3_model_comparison.csv"), index=False)
+    print(f"  -> tab3_model_comparison.csv")
+    for _, r in tab3.iterrows():
+        print(f"     {r['Modelo']:25s}  P@10={r['Precision@10']}  R@10={r['Recall@10']}  NDCG@10={r['NDCG@10']}")
+
+    return metrics
+
+
+def plot_model_comparison(metrics):
+    """Gera gráfico de barras agrupadas (Fig. 1) em paper_output/fig1_model_comparison.png."""
+    if metrics is None:
+        print("  [SKIP] Métricas não disponíveis para Fig. 1.")
+        return
+
+    print("\n[FIG1] Gerando gráfico de comparação de modelos...")
+    os.makedirs(PAPER_DIR, exist_ok=True)
+
+    model_names = list(metrics.keys())
+    precision   = [metrics[m]["precision"] for m in model_names]
+    recall      = [metrics[m]["recall"]    for m in model_names]
+    ndcg        = [metrics[m]["ndcg"]      for m in model_names]
+
+    x     = np.arange(len(model_names))
+    width = 0.25
+    colors = [PALETTE[0], PALETTE[1], PALETTE[2]]
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    b1 = ax.bar(x - width, precision, width, label="Precision@10", color=colors[0], edgecolor="white")
+    b2 = ax.bar(x,          recall,   width, label="Recall@10",    color=colors[1], edgecolor="white")
+    b3 = ax.bar(x + width,  ndcg,     width, label="NDCG@10",      color=colors[2], edgecolor="white")
+
+    for bars in (b1, b2, b3):
+        for bar in bars:
+            h = bar.get_height()
+            if h > 0:
+                ax.text(bar.get_x() + bar.get_width() / 2, h + 0.005,
+                        f"{h:.3f}", ha="center", va="bottom", fontsize=7)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(model_names, fontsize=9)
+    ax.set_ylim(0, 1.1)
+    ax.set_ylabel("Valor da métrica")
+    ax.set_xlabel("Modelo")
+    ax.set_title("Comparação dos Modelos de Recomendação (conjunto de teste)",
+                 fontweight="bold")
+    ax.legend(fontsize=9)
+    ax.yaxis.grid(True, alpha=0.4)
+    ax.set_axisbelow(True)
+
+    path = os.path.join(PAPER_DIR, "fig1_model_comparison.png")
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  -> fig1_model_comparison.png")
+
+
+def generate_hybrid_gain_table(metrics):
+    """Computa ganho percentual do Hibrido (RRF) vs. cada modelo isolado e salva tab4_hybrid_gain.csv."""
+    print("\n[TAB4] Gerando tabela de ganho da arquitetura hibrida...")
+    os.makedirs(PAPER_DIR, exist_ok=True)
+
+    if metrics is None:
+        print("  [SKIP] Metricas nao disponiveis.")
+        return
+
+    hybrid = metrics.get("Hibrido (RRF)")
+    if hybrid is None:
+        print("  [SKIP] Metricas do modelo hibrido nao encontradas.")
+        return
+
+    components = ["CB (Content-Based)", "KNN", "K-Means", "SVD (Colaborativo)"]
+    metric_keys = [("precision", "Precision@10"), ("recall", "Recall@10"), ("ndcg", "NDCG@10")]
+
+    def delta(hybrid_val, base_val):
+        if base_val == 0:
+            return "+inf" if hybrid_val > 0 else "0,00%"
+        return f"{((hybrid_val - base_val) / base_val) * 100:+.2f}%"
+
+    rows = []
+    for model in components:
+        base = metrics.get(model)
+        if base is None:
+            rows.append((model, "N/A", "N/A", "N/A"))
+            continue
+        rows.append((
+            model,
+            delta(hybrid["precision"], base["precision"]),
+            delta(hybrid["recall"],    base["recall"]),
+            delta(hybrid["ndcg"],      base["ndcg"]),
+        ))
+
+    tab4 = pd.DataFrame(rows, columns=[
+        "Modelo comparado", "Delta Precision@10 (%)", "Delta Recall@10 (%)", "Delta NDCG@10 (%)"
+    ])
+    tab4.to_csv(os.path.join(PAPER_DIR, "tab4_hybrid_gain.csv"), index=False)
+    print(f"  -> tab4_hybrid_gain.csv")
+    for _, r in tab4.iterrows():
+        print(f"     Hibrido vs {r['Modelo comparado']:25s}  "
+              f"P={r['Delta Precision@10 (%)']:>10s}  "
+              f"R={r['Delta Recall@10 (%)']:>10s}  "
+              f"NDCG={r['Delta NDCG@10 (%)']:>10s}")
+
+
+
+def plot_k_sensitivity(item_df, interactions_df, sim_matrix, cb_threshold=None):
+    """Fig. 3 — Precision@K e Recall@K do modelo hibrido para K de 1 a 20."""
+    print("\n[FIG3] Sensibilidade ao parametro K (hibrido RRF)...")
+    os.makedirs(PAPER_DIR, exist_ok=True)
+
+    if interactions_df is None or item_df is None or sim_matrix is None:
+        print("  [SKIP] Dados insuficientes.")
+        return
+
+    train_df, val_df, test_df, _ = _split_train_val_test(interactions_df)
+    if test_df.empty:
+        print("  [SKIP] Conjunto de teste vazio.")
+        return
+
+    train_eval = pd.concat([train_df, val_df], ignore_index=True)
+    rankers    = _build_rankers(item_df, train_eval, sim_matrix, cb_threshold=cb_threshold)
+    rank_rrf   = rankers["Hibrido (RRF)"]
+
+    # Pre-computa rankings para cada usuario de teste
+    user_rankings = {}
+    for uid, grp in test_df.groupby("user_id"):
+        rel = str(grp.iloc[0]["jewelry_id"])
+        user_rankings[uid] = (rank_rrf(uid), rel)
+
+    ks = list(range(1, 21))
+    precisions, recalls = [], []
+    for k in ks:
+        p_vals, r_vals = [], []
+        for uid, (ranked, rel) in user_rankings.items():
+            hit = rel in ranked[:k]
+            p_vals.append((1 / k) if hit else 0.0)
+            r_vals.append(1.0   if hit else 0.0)
+        precisions.append(float(np.mean(p_vals)) if p_vals else 0.0)
+        recalls.append(float(np.mean(r_vals))    if r_vals else 0.0)
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(ks, precisions, marker="o", lw=2, color=PALETTE[0], label="Precision@K")
+    ax.plot(ks, recalls,    marker="s", lw=2, color=PALETTE[1], label="Recall@K")
+    ax.axvline(10, color="gray", linestyle="--", lw=1.5, label="K = 10 (escolhido)")
+    ax.set_xlabel("K (tamanho da lista de recomendacao)")
+    ax.set_ylabel("Valor da metrica")
+    ax.set_title("Sensibilidade das Metricas ao Parametro K\n(Arquitetura Hibrida RRF — conjunto de teste)",
+                 fontweight="bold")
+    ax.legend(fontsize=9)
+    ax.set_xticks(ks)
+    ax.set_xlim(1, 20)
+    ax.set_ylim(0, 1.05)
+    ax.yaxis.grid(True, alpha=0.4)
+    ax.set_axisbelow(True)
+
+    fig.savefig(os.path.join(PAPER_DIR, "fig3_k_sensitivity.png"), dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("  -> fig3_k_sensitivity.png")
+
+
+def plot_kmeans_clusters(item_df, interactions_df, sim_matrix, cb_threshold=None):
+    """Fig. 4 — PCA 2D do espaco de features com clusters K-Means e usuario-exemplo."""
+    from sklearn.decomposition import PCA as _PCA
+
+    print("\n[FIG4] Visualizacao 2D dos clusters K-Means...")
+    os.makedirs(PAPER_DIR, exist_ok=True)
+
+    if item_df is None:
+        print("  [SKIP] item_df nao disponivel.")
+        return
+
+    km_data = load_model(os.path.join(MODEL_CACHE_PATH, "kmeans_model.pkl"))
+    if km_data is None:
+        print("  [SKIP] Modelo K-Means nao disponivel.")
+        return
+
+    feat_cols = [c for c in item_df.columns if c != "id"]
+    X  = item_df[feat_cols].values.astype(float)
+    ids = item_df["id"].tolist()
+
+    pca = _PCA(n_components=2, random_state=42)
+    X2  = pca.fit_transform(X)
+    id_to_xy = {iid: X2[i] for i, iid in enumerate(ids)}
+
+    id_to_cl = dict(zip(km_data["item_ids"], km_data["labels"]))
+    labels   = np.array([id_to_cl.get(iid, -1) for iid in ids])
+    n_cl     = km_data["model"].n_clusters
+    colors   = plt.cm.tab10(np.linspace(0, 1, n_cl))
+
+    fig, ax = plt.subplots(figsize=(13, 8))
+
+    for k in range(n_cl):
+        mask = labels == k
+        ax.scatter(X2[mask, 0], X2[mask, 1],
+                   c=[colors[k]], s=15, alpha=0.45, label=f"Cluster {k}")
+
+    if interactions_df is not None and not interactions_df.empty:
+        train_df, val_df, test_df, eligible = _split_train_val_test(interactions_df)
+        if len(eligible) > 0:
+            sample_uid  = str(eligible[0])
+            train_eval  = pd.concat([train_df, val_df], ignore_index=True)
+            history_ids = (train_eval[train_eval["user_id"] == sample_uid]
+                           ["jewelry_id"].astype(str).tolist())
+            rankers = _build_rankers(item_df, train_eval, sim_matrix, cb_threshold=cb_threshold)
+            recs    = rankers["Hibrido (RRF)"](sample_uid)[:10]
+
+            h_pts = np.array([id_to_xy[i] for i in history_ids if i in id_to_xy])
+            r_pts = np.array([id_to_xy[i] for i in recs        if i in id_to_xy])
+
+            if len(h_pts):
+                ax.scatter(h_pts[:, 0], h_pts[:, 1], c="black", s=140,
+                           marker="*", zorder=6, linewidths=0.5,
+                           label=f"Historico do usuario ({len(h_pts)} itens)")
+            if len(r_pts):
+                ax.scatter(r_pts[:, 0], r_pts[:, 1], c="red", s=100,
+                           marker="D", zorder=5, linewidths=0.5,
+                           label="Recomendados (top 10)")
+
+    var = pca.explained_variance_ratio_
+    ax.set_xlabel(f"PC1 ({var[0]:.1%} da variancia)")
+    ax.set_ylabel(f"PC2 ({var[1]:.1%} da variancia)")
+    ax.set_title("Espaco de Features 2D — Clusters K-Means com Historico e Recomendacoes",
+                 fontweight="bold")
+    ax.legend(loc="upper right", fontsize=7, ncol=2)
+
+    fig.savefig(os.path.join(PAPER_DIR, "fig4_kmeans_clusters.png"), dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("  -> fig4_kmeans_clusters.png")
+
+
+def plot_cold_start(item_df, interactions_df, sim_matrix, cb_threshold=None):
+    """Fig. 5 — Precision@10 media por modelo em funcao do tamanho do historico."""
+    print("\n[FIG5] Comportamento dos modelos sob cold start...")
+    os.makedirs(PAPER_DIR, exist_ok=True)
+
+    if interactions_df is None or item_df is None or sim_matrix is None:
+        print("  [SKIP] Dados insuficientes.")
+        return
+
+    history_sizes = [1, 2, 3, 5, 10, 20]
+    model_names   = ["CB (Content-Based)", "KNN", "K-Means",
+                     "SVD (Colaborativo)", "XGBoost", "Hibrido (RRF)"]
+    results  = {m: [] for m in model_names}
+    valid_ks = []
+
+    df_sorted = interactions_df.sort_values(["user_id", "created_at"])
+
+    for n in history_sizes:
+        train_rows, test_rows = [], []
+        for uid, grp in df_sorted.groupby("user_id"):
+            if len(grp) < n + 1:
+                continue
+            # n interacoes antes da ultima
+            train_rows.append(grp.iloc[-(n + 1):-1])
+            test_rows.append(grp.iloc[[-1]])
+
+        if not train_rows:
+            for m in model_names:
+                results[m].append(np.nan)
+            valid_ks.append(n)
+            continue
+
+        train_n = pd.concat(train_rows, ignore_index=True)
+        test_n  = pd.concat(test_rows,  ignore_index=True)
+
+        rankers = _build_rankers(item_df, train_n, sim_matrix, cb_threshold=cb_threshold)
+        metrics = _eval_metrics(rankers, test_n)
+
+        for m in model_names:
+            results[m].append(metrics.get(m, {}).get("precision", np.nan))
+        valid_ks.append(n)
+
+    fig, ax = plt.subplots(figsize=(11, 6))
+    markers = ["o", "s", "^", "D", "v", "*"]
+    for i, m in enumerate(model_names):
+        vals = results[m]
+        ax.plot(valid_ks, vals, marker=markers[i], lw=2,
+                color=PALETTE[i % len(PALETTE)], label=m, markersize=6, alpha=0.85)
+
+    ax.set_xlabel("Numero de interacoes no historico do usuario")
+    ax.set_ylabel("Precision@10 media")
+    ax.set_title("Comportamento dos Modelos sob Cold Start\n(Precision@10 x tamanho do historico)",
+                 fontweight="bold")
+    ax.set_xticks(valid_ks)
+    ax.set_ylim(0, 1.05)
+    ax.legend(fontsize=8)
+    ax.yaxis.grid(True, alpha=0.4)
+    ax.set_axisbelow(True)
+
+    fig.savefig(os.path.join(PAPER_DIR, "fig5_cold_start.png"), dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("  -> fig5_cold_start.png")
+
+
+def generate_dataset_table(raw_items_df, interactions_df):
+    """Gera tab1_dataset.csv e as três tabelas de distribuição em paper_output/."""
+    print("\n[TAB1] Gerando tabela de estatísticas do dataset...")
+    os.makedirs(PAPER_DIR, exist_ok=True)
+
+    rows = []
+
+    # ── Catálogo ──────────────────────────────────────────────────────────────
+    n_items = len(raw_items_df) if raw_items_df is not None else "N/A"
+    rows.append(("Número total de joias no catálogo", n_items))
+
+    # ── Usuários / interações ─────────────────────────────────────────────────
+    if interactions_df is not None:
+        n_users        = interactions_df["user_id"].nunique()
+        n_interactions = len(interactions_df)
+        n_items_ui     = interactions_df["jewelry_id"].nunique()
+        density        = n_interactions / (n_users * (n_items if n_items != "N/A" else n_items_ui))
+        date_min       = interactions_df["created_at"].min()
+        date_max       = interactions_df["created_at"].max()
+        if hasattr(date_min, "date"):
+            date_min = date_min.date()
+        if hasattr(date_max, "date"):
+            date_max = date_max.date()
+    else:
+        n_users = n_interactions = density = date_min = date_max = "N/A"
+
+    rows.append(("Número total de usuários", n_users))
+    rows.append(("Número total de interações", n_interactions))
+    rows.append(("Densidade da matriz usuário-item (%)",
+                 f"{density * 100:.4f}%" if density != "N/A" else "N/A"))
+    rows.append(("Data inicial do histórico", date_min))
+    rows.append(("Data final do histórico",   date_max))
+
+    # ── Distribuição por categoria ────────────────────────────────────────────
+    if raw_items_df is not None:
+        jt_counts = raw_items_df["jewelry_type"].value_counts().sort_index()
+        mt_counts = raw_items_df["metal_id"].value_counts().sort_index()
+        gm_counts = raw_items_df["gemstone_id"].value_counts().sort_index()
+
+        rows.append(("Tipos de joia distintos (jewelry_type)", len(jt_counts)))
+        rows.append(("Metais distintos (metal_id)",            len(mt_counts)))
+        rows.append(("Pedras distintas (gemstone_id)",         len(gm_counts)))
+
+        # Distribuições individuais
+        jt_counts.rename_axis("jewelry_type").reset_index(name="Quantidade").to_csv(
+            os.path.join(PAPER_DIR, "tab1_dist_jewelry_type.csv"), index=False
+        )
+        mt_counts.rename_axis("metal_id").reset_index(name="Quantidade").to_csv(
+            os.path.join(PAPER_DIR, "tab1_dist_metal_id.csv"), index=False
+        )
+        gm_counts.rename_axis("gemstone_id").reset_index(name="Quantidade").to_csv(
+            os.path.join(PAPER_DIR, "tab1_dist_gemstone_id.csv"), index=False
+        )
+        print("  -> tab1_dist_jewelry_type.csv, tab1_dist_metal_id.csv, tab1_dist_gemstone_id.csv")
+    else:
+        rows.append(("Tipos de joia distintos (jewelry_type)", "N/A"))
+        rows.append(("Metais distintos (metal_id)",            "N/A"))
+        rows.append(("Pedras distintas (gemstone_id)",         "N/A"))
+
+    # ── Divisão treino / validação / teste ────────────────────────────────────
+    if interactions_df is not None:
+        train_df, val_df, test_df, eligible = _split_train_val_test(interactions_df)
+        rows.append(("Usuários elegíveis para avaliação (≥ 3 interações)", len(eligible)))
+        rows.append(("Interações no conjunto de treino",                    len(train_df)))
+        rows.append(("Interações no conjunto de validação",                 len(val_df)))
+        rows.append(("Interações no conjunto de teste",                     len(test_df)))
+        rows.append(("Usuários no conjunto de validação",                   val_df["user_id"].nunique()))
+        rows.append(("Usuários no conjunto de teste",                       test_df["user_id"].nunique()))
+    else:
+        for label in (
+            "Usuários elegíveis para avaliação (≥ 3 interações)",
+            "Interações no conjunto de treino",
+            "Interações no conjunto de validação",
+            "Interações no conjunto de teste",
+            "Usuários no conjunto de validação",
+            "Usuários no conjunto de teste",
+        ):
+            rows.append((label, "N/A"))
+
+    # ── Salva CSV principal ───────────────────────────────────────────────────
+    tab1 = pd.DataFrame(rows, columns=["Indicador", "Valor"])
+    out_path = os.path.join(PAPER_DIR, "tab1_dataset.csv")
+    tab1.to_csv(out_path, index=False)
+    print(f"  -> tab1_dataset.csv  ({len(tab1)} linhas)")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TABELA 2 — Hiperparâmetros finais por modelo
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generate_hyperparams_table(item_df, interactions_df, sim_matrix):
+    """Computa NDCG@10 na validação para cada modelo e gera tab2_hyperparams.csv."""
+    print("\n[TAB2] Gerando tabela de hiperparâmetros...")
+    os.makedirs(PAPER_DIR, exist_ok=True)
+
+    if interactions_df is None or item_df is None or sim_matrix is None:
+        print("  [SKIP] item_df, interactions_df ou sim_matrix ausentes.")
+        return None
+
+    try:
+        from utils.constants import (KNN_N_NEIGHBORS, KMEANS_N_CLUSTERS,
+                                     RRF_WEIGHT_CB, RRF_WEIGHT_KNN,
+                                     RRF_WEIGHT_SVD, RRF_WEIGHT_KMEANS)
+    except ImportError:
+        KNN_N_NEIGHBORS   = 20
+        KMEANS_N_CLUSTERS = 10
+        RRF_WEIGHT_CB = RRF_WEIGHT_KNN = RRF_WEIGHT_SVD = RRF_WEIGHT_KMEANS = 1.0
+
+    train_df, val_df, _, _ = _split_train_val_test(interactions_df)
+    if val_df.empty:
+        print("  [SKIP] Conjunto de validação vazio.")
+        return None
+
+    # Grid search de threshold do CB usando o val set
+    cb_grid    = [None, 0.1, 0.2, 0.3, 0.5]
+    cb_results = {}
+    for t in cb_grid:
+        r = _build_rankers(item_df, train_df, sim_matrix, cb_threshold=t)
+        m = _eval_metrics(r, val_df)
+        cb_results[t] = m["CB (Content-Based)"]["ndcg"]
+
+    cb_best     = max(cb_results, key=cb_results.get)
+    cb_ndcg     = cb_results[cb_best]
+    cb_best_str = "Sem corte" if cb_best is None else str(cb_best).replace(".", ",")
+
+    # Avalia todos os modelos com o threshold CB escolhido
+    rankers = _build_rankers(item_df, train_df, sim_matrix, cb_threshold=cb_best)
+    metrics = _eval_metrics(rankers, val_df)
+
+    rows_out = [
+        ("CB (Content-Based)",
+         "Threshold de similaridade {Sem corte; 0,1; 0,2; 0,3; 0,5}",
+         f"threshold = {cb_best_str}",
+         f"{cb_ndcg:.4f}"),
+        ("KNN",
+         "K {5, 10, 15, 20, 30}  |  metrica = cosseno",
+         f"K = {KNN_N_NEIGHBORS}  |  metrica = cosseno",
+         f"{metrics['KNN']['ndcg']:.4f}"),
+        ("K-Means",
+         "k {5, 8, 10, 12, 15}  |  n_init = 10",
+         f"k = {KMEANS_N_CLUSTERS}  |  n_init = 10",
+         f"{metrics['K-Means']['ndcg']:.4f}"),
+        ("SVD (Colaborativo)",
+         "Fatores latentes {5, 10, 15, 20}",
+         "k = 20 fatores latentes",
+         f"{metrics['SVD (Colaborativo)']['ndcg']:.4f}"),
+        ("XGBoost",
+         "max_depth {3,4,5,6,8}; lr {0,01; 0,05; 0,1}; n_est {100,200,300,500}",
+         "max_depth=6 | lr=0,05 | n_est=300 | early_stop=25",
+         f"{metrics['XGBoost']['ndcg']:.4f}"),
+        ("Hibrido (RRF)",
+         "w1,w2,w3,w4 {0,5; 0,8; 1,0; 1,2; 1,5} (busca em grade)",
+         f"w_CB={RRF_WEIGHT_CB} | w_KNN={RRF_WEIGHT_KNN} | w_SVD={RRF_WEIGHT_SVD} | w_KM={RRF_WEIGHT_KMEANS}",
+         f"{metrics['Hibrido (RRF)']['ndcg']:.4f}"),
+    ]
+    tab2 = pd.DataFrame(rows_out, columns=[
+        "Modelo", "Hiperparametros varridos (grade)",
+        "Valor final escolhido", "NDCG@10 (validacao)"
+    ])
+    tab2.to_csv(os.path.join(PAPER_DIR, "tab2_hyperparams.csv"), index=False)
+    print(f"  -> tab2_hyperparams.csv  ({len(tab2)} modelos)")
+    for _, r in tab2.iterrows():
+        print(f"     {r['Modelo']:25s}  NDCG@10 = {r['NDCG@10 (validacao)']}")
+
+    return cb_best
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1028,6 +1696,21 @@ def main():
         print("  Interações indisponíveis — gráficos dependentes serão omitidos/simplificados.")
     if raw_items_df is not None:
         print(f"  raw_items   : {len(raw_items_df)} itens")
+
+    # Gera tabela de estatísticas do dataset (Tabela 1 do artigo)
+    generate_dataset_table(raw_items_df, interactions_df)
+
+    # Gera tabela de hiperparâmetros (Tabela 2 do artigo)
+    cb_threshold = generate_hyperparams_table(item_df, interactions_df, sim_matrix)
+
+    # Gera comparacao de modelos no teste (Tabela 3 + Fig. 1 do artigo)
+    test_metrics = generate_model_comparison(item_df, interactions_df, sim_matrix,
+                                             cb_threshold=cb_threshold)
+    plot_model_comparison(test_metrics)
+    generate_hybrid_gain_table(test_metrics)
+    plot_k_sensitivity(item_df, interactions_df, sim_matrix, cb_threshold=cb_threshold)
+    plot_kmeans_clusters(item_df, interactions_df, sim_matrix, cb_threshold=cb_threshold)
+    plot_cold_start(item_df, interactions_df, sim_matrix, cb_threshold=cb_threshold)
 
     # Gera figuras
     plot_data_overview(item_df, interactions_df, raw_items_df, popularity)

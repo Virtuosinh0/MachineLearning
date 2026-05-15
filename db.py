@@ -7,8 +7,8 @@ def get_db_connection():
             host=os.getenv("PGHOST", "localhost"),
             dbname=os.getenv("PGDATABASE", "postgres"),
             user=os.getenv("PGUSER", "postgres"),
-            password=os.getenv("PGPASSWORD", "postgres"),
-            port=os.getenv("PGPORT", "5432"),
+            password=os.getenv("PGPASSWORD", "banana"),
+            port=os.getenv("PGPORT", "5433"),
             connect_timeout=10,
             options="-c statement_timeout=30000"
         )
