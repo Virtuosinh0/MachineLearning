@@ -133,6 +133,13 @@ def read_root():
     return {"status": "Serviço de ML online"}
 
 
+@app.post("/ping", response_model=RecommendationResponse)
+async def recommend_ping(request: RecommendationRequest):
+    """Endpoint de diagnóstico: retorna popularidade sem DB ou ML."""
+    pop = [str(x) for x in (_training._popularity or [])[:request.numberOfRecommendations]]
+    return RecommendationResponse(recommendedForYou=pop, popularNow=pop)
+
+
 @app.post("/recommendations", response_model=RecommendationResponse)
 async def recommend(request: RecommendationRequest):
     user_id_str = str(request.userId)
