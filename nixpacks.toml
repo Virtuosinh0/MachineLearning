@@ -3,6 +3,7 @@ nixPkgs = ["python314", "python314Packages.pip"]
 aptPackages = [
   "build-essential",
   "python3-dev",
+  "libpq-dev",
   "libopenblas-dev",
   "liblapack-dev",
   "libomp-dev"
