@@ -18,6 +18,7 @@ from training.kmeans_training import load_kmeans_model, train_kmeans, KMEANS_MOD
 from training.knn_training import load_knn_model, train_knn, KNN_MODEL_FILE
 from recommending.recommendation import get_recommendations, get_hybrid_recommendations
 
+@asynccontextmanager
 async def lifespan(app: FastAPI):
     print(f"--- INÍCIO LIFESPAN ---")
     print(f"Ambiente: OS={platform.system()}, Architecture={platform.machine()}")
@@ -86,9 +87,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     
 @app.get("/diagnostic")
 def diagnostic_data():
-    item_count = len(_item_df) if _item_df is not None else 0
-    pop_count = len(_popularity) if _popularity is not None else 0
-    
+    item_count = len(_training._item_df) if _training._item_df is not None else 0
+    pop_count = len(_training._popularity) if _training._popularity is not None else 0
+
     xgb_status    = "Carregado OK" if load_xgb_model()    is not None else "N/A (não encontrado)"
     kmeans_status = "Carregado OK" if load_kmeans_model() is not None else "N/A (não encontrado)"
     knn_status    = "Carregado OK" if load_knn_model()    is not None else "N/A (não encontrado)"
@@ -108,7 +109,7 @@ def diagnostic_data():
         "status": "OK: Dados Carregados",
         "item_count": item_count,
         "popularity_count": pop_count,
-        "first_popular_item": _popularity[0] if pop_count > 0 else None,
+        "first_popular_item": _training._popularity[0] if pop_count > 0 else None,
         "xgb_model_status": xgb_status,
         "kmeans_model_status": kmeans_status,
         "knn_model_status": knn_status,
