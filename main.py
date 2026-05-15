@@ -133,6 +133,11 @@ def read_root():
     return {"status": "Serviço de ML online"}
 
 
+@app.post("/echo")
+async def echo():
+    return {"ok": True}
+
+
 @app.post("/ping", response_model=RecommendationResponse)
 async def recommend_ping(request: RecommendationRequest):
     """Endpoint de diagnóstico: retorna popularidade sem DB ou ML."""
