@@ -1,9 +1,8 @@
 [phases.setup]
-nixPkgs = ["python314", "python314Packages.pip"]
+nixPkgs = ["python314", "python314Packages.pip", "libpq"]
 aptPackages = [
   "build-essential",
   "python3-dev",
-  "libpq-dev",
   "libopenblas-dev",
   "liblapack-dev",
   "libomp-dev"
