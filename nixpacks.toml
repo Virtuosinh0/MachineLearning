@@ -14,4 +14,4 @@ cmds = [
 ]
 
 [start]
-cmd = "sh -c 'uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1'"
+cmd = "sh -c 'uvicorn main:app --host 0.0.0.0 --port $MLPORT --workers 1'"
