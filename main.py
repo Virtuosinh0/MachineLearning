@@ -145,16 +145,12 @@ async def recommend_ping(request: RecommendationRequest):
     return RecommendationResponse(recommendedForYou=pop, popularNow=pop)
 
 
-@app.post("/recommendations", response_model=RecommendationResponse)
-async def recommend(request: RecommendationRequest):
-    user_id_str = str(request.userId)
-    count = int(request.numberOfRecommendations)
+async def _run_recommendations(user_id_str: str, count: int) -> RecommendationResponse:
     fallback = [str(x) for x in (_training._popularity or [])[:count]]
-
-    print(f"[/recommendations] Iniciando para user_id={user_id_str}, count={count}")
-
     recs_gosto: List[str] = fallback
     recs_xgb: List[str] = fallback
+
+    print(f"[/recommendations] Iniciando para user_id={user_id_str}, count={count}")
 
     try:
         with anyio.fail_after(20):
@@ -180,3 +176,13 @@ async def recommend(request: RecommendationRequest):
         recommendedForYou=[str(r) for r in recs_gosto],
         popularNow=[str(r) for r in recs_xgb]
     )
+
+
+@app.post("/recommendations", response_model=RecommendationResponse)
+async def recommend_post(request: RecommendationRequest):
+    return await _run_recommendations(str(request.userId), int(request.numberOfRecommendations))
+
+
+@app.get("/recommendations", response_model=RecommendationResponse)
+async def recommend_get(user_id: str, number_of_recommendations: int = 10):
+    return await _run_recommendations(user_id, number_of_recommendations)
