@@ -1,5 +1,0 @@
-Modelo comparado,Delta Precision@10 (%),Delta Recall@10 (%),Delta NDCG@10 (%)
-CB (Content-Based),"0,00%","0,00%","0,00%"
-KNN,"0,00%","0,00%","0,00%"
-K-Means,"0,00%","0,00%","0,00%"
-SVD (Colaborativo),"0,00%","0,00%","0,00%"

@@ -1,7 +1,0 @@
-Modelo,Precision@10,Recall@10,NDCG@10
-CB (Content-Based),0.0000,0.0000,0.0000
-KNN,0.0000,0.0000,0.0000
-K-Means,0.0000,0.0000,0.0000
-SVD (Colaborativo),0.0000,0.0000,0.0000
-XGBoost,0.0000,0.0000,0.0000
-Hibrido (RRF),0.0000,0.0000,0.0000
