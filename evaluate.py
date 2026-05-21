@@ -104,7 +104,7 @@ def try_get_raw_items():
 
 def interaction_score(row):
     TYPE_WEIGHTS = {"ignored": -0.1, "click": 1.0, "shopping_cart": 3.0, "bought": 5.0}
-    HALF_LIFE = 30.0
+    HALF_LIFE = 120.0
     base = TYPE_WEIGHTS.get(str(row.get("type", "")).lower(), 0.0)
     created = row.get("created_at")
     if created is None:
@@ -784,7 +784,7 @@ def plot_hybrid(item_df):
                                      HALF_LIFE_DAYS, TYPE_WEIGHTS)
     except ImportError:
         RRF_WEIGHT_CB = RRF_WEIGHT_KNN = RRF_WEIGHT_SVD = RRF_WEIGHT_KMEANS = 1.0
-        HALF_LIFE_DAYS = 30.0
+        HALF_LIFE_DAYS = 120.0
         TYPE_WEIGHTS = {"ignored": -0.1, "click": 1.0, "shopping_cart": 3.0, "bought": 5.0}
 
     ALGOS   = ["Content-Based\n(CB)", "KNN", "SVD\n(Colaborativo)", "K-Means"]

@@ -12,7 +12,7 @@ TYPE_WEIGHTS = {
     "bought": 5.0
 }
 
-HALF_LIFE_DAYS = 30.0
+HALF_LIFE_DAYS = 120.0
 
 PRICE_WEIGHT = 2.0
 
