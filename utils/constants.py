@@ -19,6 +19,9 @@ PRICE_WEIGHT = 2.0
 KMEANS_N_CLUSTERS = 10
 KNN_N_NEIGHBORS = 20
 
+# Reciprocal Rank Fusion — constante de amortecimento (Cormack et al., 2009)
+RRF_K = 60
+
 # Pesos do Reciprocal Rank Fusion no sistema híbrido (altere aqui para experimentar)
 RRF_WEIGHT_CB     = 1.0   # Content-Based (similaridade de features)
 RRF_WEIGHT_KNN    = 1.0   # KNN (vizinhos mais próximos)

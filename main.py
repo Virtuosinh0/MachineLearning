@@ -16,7 +16,7 @@ from training.training import train_model, _load_cache_if_needed
 from training.xgboost_training import train_xgb, load_xgb_model, recommend_with_xgb
 from training.kmeans_training import load_kmeans_model, train_kmeans, KMEANS_MODEL_FILE
 from training.knn_training import load_knn_model, train_knn, KNN_MODEL_FILE
-from recommending.recommendation import get_recommendations, get_hybrid_recommendations
+from recommending.recommendation import get_hybrid_recommendations
 
 
 @asynccontextmanager
@@ -154,11 +154,11 @@ async def _run_recommendations(user_id_str: str, count: int) -> RecommendationRe
 
     try:
         with anyio.fail_after(20):
-            print("[/recommendations] Chamando get_recommendations...")
+            print("[/recommendations] Chamando get_hybrid_recommendations...")
             recs_gosto = await anyio.to_thread.run_sync(
-                lambda: get_recommendations(user_id=user_id_str, count=count)
+                lambda: get_hybrid_recommendations(user_id=user_id_str, count=count)
             )
-            print(f"[/recommendations] get_recommendations OK ({len(recs_gosto)} itens)")
+            print(f"[/recommendations] get_hybrid_recommendations OK ({len(recs_gosto)} itens)")
 
             print("[/recommendations] Chamando recommend_with_xgb...")
             recs_xgb = await anyio.to_thread.run_sync(

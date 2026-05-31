@@ -1105,7 +1105,7 @@ def _build_rankers(item_df, train_eval_df, sim_matrix, cb_threshold=None):
         scores = {}
         for ranked, w in rankings:
             for i, iid in enumerate(ranked):
-                scores[iid] = scores.get(iid, 0.0) + (1.0 / (i + 1)) * w
+                scores[iid] = scores.get(iid, 0.0) + w / (60 + i + 1)
         return sorted(scores, key=scores.get, reverse=True)
 
     return {

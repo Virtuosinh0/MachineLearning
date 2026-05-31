@@ -4,7 +4,7 @@ from training import training
 from training.collaborative_training import recommend_svd
 from training.kmeans_training import recommend_with_kmeans
 from training.knn_training import recommend_with_knn
-from utils.constants import RRF_WEIGHT_CB, RRF_WEIGHT_KNN, RRF_WEIGHT_SVD, RRF_WEIGHT_KMEANS
+from utils.constants import RRF_WEIGHT_CB, RRF_WEIGHT_KNN, RRF_WEIGHT_SVD, RRF_WEIGHT_KMEANS, RRF_K
 
 def get_hybrid_recommendations(user_id: str, count: int = 10):
     """
@@ -23,7 +23,7 @@ def get_hybrid_recommendations(user_id: str, count: int = 10):
 
     def apply_score(recs, weight):
         for i, iid in enumerate(recs):
-            score = (1.0 / (i + 1)) * weight
+            score = weight / (RRF_K + i + 1)
             scores[iid] = scores.get(iid, 0.0) + score
 
     apply_score(cb_recs,     RRF_WEIGHT_CB)
