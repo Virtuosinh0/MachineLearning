@@ -64,15 +64,33 @@ def recommend_svd(user_id: str, count: int = 10):
         print(f"------------------------------------------------\n")
         return []
 
+    conn = get_db_connection()
+    interacted_set = set()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT DISTINCT jewelry_id FROM user_interaction WHERE user_id = %s;",
+                    (user_id,)
+                )
+                interacted_set = {str(r[0]) for r in cur.fetchall()}
+        finally:
+            conn.close()
+
     u_idx = list(data["user_map"]).index(user_id)
     u_ratings = data["ratings"][u_idx]
 
     item_indices = np.argsort(u_ratings)[::-1]
-    recs = [data["item_map"][i] for i in item_indices[:count]]
+    recs = [
+        str(data["item_map"][i])
+        for i in item_indices
+        if str(data["item_map"][i]) not in interacted_set
+    ][:count]
 
     top_scores = u_ratings[item_indices[:count]]
     print(f"  [Usuário no modelo]  Sim (índice {u_idx} de {len(data['user_map'])} usuários)")
     print(f"  [Itens no modelo]    {len(data['item_map'])} itens com scores latentes")
+    print(f"  [Interações filtradas] {len(interacted_set)} itens removidos do ranking")
     print(f"  [Score latente top-1]    {float(top_scores[0]):.4f}")
     print(f"  [Score latente top-{count}]   {float(top_scores[-1]):.4f}")
     print(f"  [Score médio top-{count}]     {float(np.mean(top_scores)):.4f}")
