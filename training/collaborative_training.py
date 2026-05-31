@@ -21,7 +21,9 @@ def train_collaborative_svd():
         if df.empty: return
         
         df['score'] = df.apply(training.interaction_score, axis=1)
-        
+        df['user_id'] = df['user_id'].astype(str)
+        df['jewelry_id'] = df['jewelry_id'].astype(str)
+
         # Cria matriz esparsa
         user_codes = df['user_id'].astype('category')
         item_codes = df['jewelry_id'].astype('category')
