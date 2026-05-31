@@ -13,9 +13,10 @@ import anyio
 
 from training import training as _training
 from training.training import train_model, _load_cache_if_needed
-from training.xgboost_training import train_xgb, load_xgb_model, recommend_with_xgb
+from training.xgboost_training import train_xgb, load_xgb_model, recommend_with_xgb, XGB_MODEL_FILE
 from training.kmeans_training import load_kmeans_model, train_kmeans, KMEANS_MODEL_FILE
 from training.knn_training import load_knn_model, train_knn, KNN_MODEL_FILE
+from training.collaborative_training import train_collaborative_svd, SVD_MODEL_FILE
 from recommending.recommendation import get_hybrid_recommendations
 
 
@@ -60,6 +61,20 @@ async def lifespan(app: FastAPI):
             load_knn_model()
         except Exception as e:
             print(f"Aviso: falha ao carregar modelo KNN: {e}")
+
+    if not os.path.exists(SVD_MODEL_FILE):
+        print("[lifespan] svd_model.pkl não encontrado — treinando SVD...")
+        try:
+            train_collaborative_svd()
+        except Exception as e:
+            print(f"Aviso: falha ao treinar SVD: {e}")
+
+    if not os.path.exists(XGB_MODEL_FILE):
+        print("[lifespan] xgb_model.pkl não encontrado — treinando XGBoost...")
+        try:
+            train_xgb()
+        except Exception as e:
+            print(f"Aviso: falha ao treinar XGBoost: {e}")
 
     yield
     print("Aplicação encerrada.")
