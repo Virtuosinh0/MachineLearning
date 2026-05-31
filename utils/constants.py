@@ -16,7 +16,7 @@ HALF_LIFE_DAYS = 120.0
 
 PRICE_WEIGHT = 2.0
 
-KMEANS_N_CLUSTERS = 10
+KMEANS_N_CLUSTERS = 2
 KNN_N_NEIGHBORS = 20
 
 # Reciprocal Rank Fusion — constante de amortecimento (Cormack et al., 2009)
