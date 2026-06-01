@@ -16,8 +16,8 @@ HALF_LIFE_DAYS = 120.0
 
 PRICE_WEIGHT = 2.0
 
-KMEANS_N_CLUSTERS = 6
-KNN_N_NEIGHBORS = 20
+KMEANS_N_CLUSTERS = 10
+KNN_N_NEIGHBORS = 15
 
 # Reciprocal Rank Fusion — constante de amortecimento (Cormack et al., 2009)
 RRF_K = 60
@@ -27,3 +27,6 @@ RRF_WEIGHT_CB     = 1.0   # Content-Based (similaridade de features)
 RRF_WEIGHT_KNN    = 1.0   # KNN (vizinhos mais próximos)
 RRF_WEIGHT_SVD    = 1.0   # SVD (filtragem colaborativa)
 RRF_WEIGHT_KMEANS = 1.0   # K-Means (afinidade por cluster)
+
+# Threshold mínimo de similaridade cosseno para o Content-Based (seção 3.3 do artigo)
+CB_SIMILARITY_THRESHOLD = 0.1

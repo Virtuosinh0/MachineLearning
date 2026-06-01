@@ -4,7 +4,7 @@ from training import training
 from training.collaborative_training import recommend_svd
 from training.kmeans_training import recommend_with_kmeans
 from training.knn_training import recommend_with_knn
-from utils.constants import RRF_WEIGHT_CB, RRF_WEIGHT_KNN, RRF_WEIGHT_SVD, RRF_WEIGHT_KMEANS, RRF_K
+from utils.constants import RRF_WEIGHT_CB, RRF_WEIGHT_KNN, RRF_WEIGHT_SVD, RRF_WEIGHT_KMEANS, RRF_K, CB_SIMILARITY_THRESHOLD
 
 def get_hybrid_recommendations(user_id: str, count: int = 10):
     """
@@ -110,6 +110,7 @@ def get_recommendations(user_id: str, count: int = 10):
         sidx = id_to_idx[seed_id]
         sims = training._similarity_matrix[sidx]
         for idx, sim_val in enumerate(sims):
+            if sim_val < CB_SIMILARITY_THRESHOLD: continue
             iid = training._item_df['id'].iloc[idx]
             if iid == seed_id: continue
             candidate_scores[iid] = candidate_scores.get(iid, 0.0) + sim_val * weight

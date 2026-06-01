@@ -992,7 +992,7 @@ def _split_train_val_test(interactions_df):
     return train_df, val_df, test_df, eligible
 
 
-def _build_rankers(item_df, train_eval_df, sim_matrix, cb_threshold=None):
+def _build_rankers(item_df, train_eval_df, sim_matrix, cb_threshold=None, knn_data_override=None):
     """
     Retorna dict {nome_modelo: rank_fn(uid) -> list[item_id]}.
     train_eval_df é o histórico visível do modelo (treino ou treino+val).
@@ -1024,7 +1024,7 @@ def _build_rankers(item_df, train_eval_df, sim_matrix, cb_threshold=None):
                 cand[iid] = cand.get(iid, 0.0) + sv * w
         return sorted(cand, key=cand.get, reverse=True)
 
-    knn_data = load_model(os.path.join(MODEL_CACHE_PATH, "knn_model.pkl"))
+    knn_data = knn_data_override if knn_data_override is not None else load_model(os.path.join(MODEL_CACHE_PATH, "knn_model.pkl"))
 
     def rank_knn(uid):
         if knn_data is None:
@@ -1080,7 +1080,7 @@ def _build_rankers(item_df, train_eval_df, sim_matrix, cb_threshold=None):
             _uc = _df["user_id"].astype("category")
             _ic = _df["jewelry_id"].astype("category")
             _pivot = _csr((_df["score"], (_uc.cat.codes, _ic.cat.codes)))
-            _k = min(20, _pivot.shape[1] - 1)
+            _k = max(1, min(20, _pivot.shape[0] - 1, _pivot.shape[1] - 1))
             _u, _s, _vt = _svds(_pivot.asfptype(), k=_k)
             _ratings = np.dot(np.dot(_u, np.diag(_s)), _vt)
             _svd_eval_data = {
@@ -1168,7 +1168,7 @@ def _eval_metrics(rankers, eval_df, k=10):
     }
 
 
-def generate_model_comparison(item_df, interactions_df, sim_matrix, cb_threshold=None):
+def generate_model_comparison(item_df, interactions_df, sim_matrix, cb_threshold=None, knn_data_override=None):
     """Avalia todos os modelos no conjunto de teste e gera tab3_model_comparison.csv."""
     print("\n[TAB3] Gerando comparação de modelos (conjunto de teste)...")
     os.makedirs(PAPER_DIR, exist_ok=True)
@@ -1184,7 +1184,7 @@ def generate_model_comparison(item_df, interactions_df, sim_matrix, cb_threshold
 
     # Modelo vê treino + validação (tudo exceto a última interação)
     train_eval_df = pd.concat([train_df, val_df], ignore_index=True)
-    rankers = _build_rankers(item_df, train_eval_df, sim_matrix, cb_threshold=cb_threshold)
+    rankers = _build_rankers(item_df, train_eval_df, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_data_override)
     metrics = _eval_metrics(rankers, test_df)
 
     rows = [
@@ -1298,7 +1298,7 @@ def generate_hybrid_gain_table(metrics):
 
 
 
-def plot_k_sensitivity(item_df, interactions_df, sim_matrix, cb_threshold=None):
+def plot_k_sensitivity(item_df, interactions_df, sim_matrix, cb_threshold=None, knn_data_override=None):
     """Fig. 3 — Precision@K e Recall@K do modelo hibrido para K de 1 a 20."""
     print("\n[FIG3] Sensibilidade ao parametro K (hibrido RRF)...")
     os.makedirs(PAPER_DIR, exist_ok=True)
@@ -1313,7 +1313,7 @@ def plot_k_sensitivity(item_df, interactions_df, sim_matrix, cb_threshold=None):
         return
 
     train_eval = pd.concat([train_df, val_df], ignore_index=True)
-    rankers    = _build_rankers(item_df, train_eval, sim_matrix, cb_threshold=cb_threshold)
+    rankers    = _build_rankers(item_df, train_eval, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_data_override)
     rank_rrf   = rankers["Hibrido (RRF)"]
 
     # Pre-computa rankings para cada usuario de teste
@@ -1353,7 +1353,7 @@ def plot_k_sensitivity(item_df, interactions_df, sim_matrix, cb_threshold=None):
     print("  -> fig3_k_sensitivity.png")
 
 
-def plot_kmeans_clusters(item_df, interactions_df, sim_matrix, cb_threshold=None):
+def plot_kmeans_clusters(item_df, interactions_df, sim_matrix, cb_threshold=None, knn_data_override=None):
     """Fig. 4 — PCA 2D do espaco de features com clusters K-Means e usuario-exemplo."""
     from sklearn.decomposition import PCA as _PCA
 
@@ -1396,7 +1396,7 @@ def plot_kmeans_clusters(item_df, interactions_df, sim_matrix, cb_threshold=None
             train_eval  = pd.concat([train_df, val_df], ignore_index=True)
             history_ids = (train_eval[train_eval["user_id"] == sample_uid]
                            ["jewelry_id"].astype(str).tolist())
-            rankers = _build_rankers(item_df, train_eval, sim_matrix, cb_threshold=cb_threshold)
+            rankers = _build_rankers(item_df, train_eval, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_data_override)
             recs    = rankers["Hibrido (RRF)"](sample_uid)[:10]
 
             h_pts = np.array([id_to_xy[i] for i in history_ids if i in id_to_xy])
@@ -1423,7 +1423,7 @@ def plot_kmeans_clusters(item_df, interactions_df, sim_matrix, cb_threshold=None
     print("  -> fig4_kmeans_clusters.png")
 
 
-def plot_cold_start(item_df, interactions_df, sim_matrix, cb_threshold=None):
+def plot_cold_start(item_df, interactions_df, sim_matrix, cb_threshold=None, knn_data_override=None):
     """Fig. 5 — Precision@10 media por modelo em funcao do tamanho do historico."""
     print("\n[FIG5] Comportamento dos modelos sob cold start...")
     os.makedirs(PAPER_DIR, exist_ok=True)
@@ -1458,7 +1458,7 @@ def plot_cold_start(item_df, interactions_df, sim_matrix, cb_threshold=None):
         train_n = pd.concat(train_rows, ignore_index=True)
         test_n  = pd.concat(test_rows,  ignore_index=True)
 
-        rankers = _build_rankers(item_df, train_n, sim_matrix, cb_threshold=cb_threshold)
+        rankers = _build_rankers(item_df, train_n, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_data_override)
         metrics = _eval_metrics(rankers, test_n)
 
         for m in model_names:
@@ -1612,8 +1612,34 @@ def generate_hyperparams_table(item_df, interactions_df, sim_matrix):
     cb_ndcg     = cb_results[cb_best]
     cb_best_str = "Sem corte" if cb_best is None else str(cb_best).replace(".", ",")
 
-    # Avalia todos os modelos com o threshold CB escolhido
-    rankers = _build_rankers(item_df, train_df, sim_matrix, cb_threshold=cb_best)
+    # Grid search de K do KNN usando o val set
+    from sklearn.neighbors import NearestNeighbors as _NearestNeighbors
+    feat_cols_knn = [c for c in item_df.columns if c != "id"]
+    X_knn = item_df[feat_cols_knn].values.astype(float)
+    knn_grid = [5, 10, 15, 20, 30]
+    knn_results = {}
+    print("  Grid search KNN: ", end="", flush=True)
+    for k in knn_grid:
+        n_neighbors = min(k + 1, len(X_knn))
+        tmp_model = _NearestNeighbors(n_neighbors=n_neighbors, metric="cosine", algorithm="brute", n_jobs=-1)
+        tmp_model.fit(X_knn)
+        tmp_knn_data = {
+            "model": tmp_model,
+            "item_ids": item_df["id"].tolist(),
+            "X": X_knn,
+            "metric": "cosine",
+        }
+        r = _build_rankers(item_df, train_df, sim_matrix, cb_threshold=cb_best, knn_data_override=tmp_knn_data)
+        m = _eval_metrics(r, val_df)
+        knn_results[k] = (m["KNN"]["ndcg"], tmp_knn_data)
+        print(f"K={k}({m['KNN']['ndcg']:.4f}) ", end="", flush=True)
+    print()
+
+    knn_best = max(knn_results, key=lambda k: knn_results[k][0])
+    knn_ndcg, knn_best_data = knn_results[knn_best]
+
+    # Avalia todos os modelos com o threshold CB e K KNN escolhidos
+    rankers = _build_rankers(item_df, train_df, sim_matrix, cb_threshold=cb_best, knn_data_override=knn_best_data)
     metrics = _eval_metrics(rankers, val_df)
 
     rows_out = [
@@ -1623,8 +1649,8 @@ def generate_hyperparams_table(item_df, interactions_df, sim_matrix):
          f"{cb_ndcg:.4f}"),
         ("KNN",
          "K {5, 10, 15, 20, 30}  |  metrica = cosseno",
-         f"K = {KNN_N_NEIGHBORS}  |  metrica = cosseno",
-         f"{metrics['KNN']['ndcg']:.4f}"),
+         f"K = {knn_best}  |  metrica = cosseno",
+         f"{knn_ndcg:.4f}"),
         ("K-Means",
          "k {5, 8, 10, 12, 15}  |  n_init = 10",
          f"k = {KMEANS_N_CLUSTERS}  |  n_init = 10",
@@ -1651,7 +1677,7 @@ def generate_hyperparams_table(item_df, interactions_df, sim_matrix):
     for _, r in tab2.iterrows():
         print(f"     {r['Modelo']:25s}  NDCG@10 = {r['NDCG@10 (validacao)']}")
 
-    return cb_best
+    return cb_best, knn_best_data
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1727,16 +1753,16 @@ def main():
     generate_dataset_table(raw_items_df, interactions_df)
 
     # Gera tabela de hiperparâmetros (Tabela 2 do artigo)
-    cb_threshold = generate_hyperparams_table(item_df, interactions_df, sim_matrix)
+    cb_threshold, knn_best_data = generate_hyperparams_table(item_df, interactions_df, sim_matrix)
 
     # Gera comparacao de modelos no teste (Tabela 3 + Fig. 1 do artigo)
     test_metrics = generate_model_comparison(item_df, interactions_df, sim_matrix,
-                                             cb_threshold=cb_threshold)
+                                             cb_threshold=cb_threshold, knn_data_override=knn_best_data)
     plot_model_comparison(test_metrics)
     generate_hybrid_gain_table(test_metrics)
-    plot_k_sensitivity(item_df, interactions_df, sim_matrix, cb_threshold=cb_threshold)
-    plot_kmeans_clusters(item_df, interactions_df, sim_matrix, cb_threshold=cb_threshold)
-    plot_cold_start(item_df, interactions_df, sim_matrix, cb_threshold=cb_threshold)
+    plot_k_sensitivity(item_df, interactions_df, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_best_data)
+    plot_kmeans_clusters(item_df, interactions_df, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_best_data)
+    plot_cold_start(item_df, interactions_df, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_best_data)
 
     # Gera figuras
     plot_data_overview(item_df, interactions_df, raw_items_df, popularity)
