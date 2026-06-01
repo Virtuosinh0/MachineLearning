@@ -691,7 +691,7 @@ def plot_svd(interactions_df):
             pivot = csr_matrix(
                 (df_svd["score"], (user_codes.cat.codes, item_codes.cat.codes))
             )
-            k = min(20, pivot.shape[1] - 1)
+            k = min(30, pivot.shape[1] - 1)
             _, sigma_vals, _ = svds(pivot.asfptype(), k=k)
             sigma_vals = sigma_vals[::-1]  # svds retorna em ordem crescente
 
@@ -992,7 +992,7 @@ def _split_train_val_test(interactions_df):
     return train_df, val_df, test_df, eligible
 
 
-def _build_rankers(item_df, train_eval_df, sim_matrix, cb_threshold=None, knn_data_override=None):
+def _build_rankers(item_df, train_eval_df, sim_matrix, cb_threshold=None, knn_data_override=None, svd_n_factors=20):
     """
     Retorna dict {nome_modelo: rank_fn(uid) -> list[item_id]}.
     train_eval_df é o histórico visível do modelo (treino ou treino+val).
@@ -1080,7 +1080,7 @@ def _build_rankers(item_df, train_eval_df, sim_matrix, cb_threshold=None, knn_da
             _uc = _df["user_id"].astype("category")
             _ic = _df["jewelry_id"].astype("category")
             _pivot = _csr((_df["score"], (_uc.cat.codes, _ic.cat.codes)))
-            _k = max(1, min(20, _pivot.shape[0] - 1, _pivot.shape[1] - 1))
+            _k = max(1, min(svd_n_factors, _pivot.shape[0] - 1, _pivot.shape[1] - 1))
             _u, _s, _vt = _svds(_pivot.asfptype(), k=_k)
             _ratings = np.dot(np.dot(_u, np.diag(_s)), _vt)
             _svd_eval_data = {
@@ -1168,7 +1168,7 @@ def _eval_metrics(rankers, eval_df, k=10):
     }
 
 
-def generate_model_comparison(item_df, interactions_df, sim_matrix, cb_threshold=None, knn_data_override=None):
+def generate_model_comparison(item_df, interactions_df, sim_matrix, cb_threshold=None, knn_data_override=None, svd_n_factors=20):
     """Avalia todos os modelos no conjunto de teste e gera tab3_model_comparison.csv."""
     print("\n[TAB3] Gerando comparação de modelos (conjunto de teste)...")
     os.makedirs(PAPER_DIR, exist_ok=True)
@@ -1184,7 +1184,7 @@ def generate_model_comparison(item_df, interactions_df, sim_matrix, cb_threshold
 
     # Modelo vê treino + validação (tudo exceto a última interação)
     train_eval_df = pd.concat([train_df, val_df], ignore_index=True)
-    rankers = _build_rankers(item_df, train_eval_df, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_data_override)
+    rankers = _build_rankers(item_df, train_eval_df, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_data_override, svd_n_factors=svd_n_factors)
     metrics = _eval_metrics(rankers, test_df)
 
     rows = [
@@ -1298,7 +1298,7 @@ def generate_hybrid_gain_table(metrics):
 
 
 
-def plot_k_sensitivity(item_df, interactions_df, sim_matrix, cb_threshold=None, knn_data_override=None):
+def plot_k_sensitivity(item_df, interactions_df, sim_matrix, cb_threshold=None, knn_data_override=None, svd_n_factors=20):
     """Fig. 3 — Precision@K e Recall@K do modelo hibrido para K de 1 a 20."""
     print("\n[FIG3] Sensibilidade ao parametro K (hibrido RRF)...")
     os.makedirs(PAPER_DIR, exist_ok=True)
@@ -1313,7 +1313,7 @@ def plot_k_sensitivity(item_df, interactions_df, sim_matrix, cb_threshold=None, 
         return
 
     train_eval = pd.concat([train_df, val_df], ignore_index=True)
-    rankers    = _build_rankers(item_df, train_eval, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_data_override)
+    rankers    = _build_rankers(item_df, train_eval, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_data_override, svd_n_factors=svd_n_factors)
     rank_rrf   = rankers["Hibrido (RRF)"]
 
     # Pre-computa rankings para cada usuario de teste
@@ -1353,7 +1353,7 @@ def plot_k_sensitivity(item_df, interactions_df, sim_matrix, cb_threshold=None, 
     print("  -> fig3_k_sensitivity.png")
 
 
-def plot_kmeans_clusters(item_df, interactions_df, sim_matrix, cb_threshold=None, knn_data_override=None):
+def plot_kmeans_clusters(item_df, interactions_df, sim_matrix, cb_threshold=None, knn_data_override=None, svd_n_factors=20):
     """Fig. 4 — PCA 2D do espaco de features com clusters K-Means e usuario-exemplo."""
     from sklearn.decomposition import PCA as _PCA
 
@@ -1396,7 +1396,7 @@ def plot_kmeans_clusters(item_df, interactions_df, sim_matrix, cb_threshold=None
             train_eval  = pd.concat([train_df, val_df], ignore_index=True)
             history_ids = (train_eval[train_eval["user_id"] == sample_uid]
                            ["jewelry_id"].astype(str).tolist())
-            rankers = _build_rankers(item_df, train_eval, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_data_override)
+            rankers = _build_rankers(item_df, train_eval, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_data_override, svd_n_factors=svd_n_factors)
             recs    = rankers["Hibrido (RRF)"](sample_uid)[:10]
 
             h_pts = np.array([id_to_xy[i] for i in history_ids if i in id_to_xy])
@@ -1423,7 +1423,7 @@ def plot_kmeans_clusters(item_df, interactions_df, sim_matrix, cb_threshold=None
     print("  -> fig4_kmeans_clusters.png")
 
 
-def plot_cold_start(item_df, interactions_df, sim_matrix, cb_threshold=None, knn_data_override=None):
+def plot_cold_start(item_df, interactions_df, sim_matrix, cb_threshold=None, knn_data_override=None, svd_n_factors=20):
     """Fig. 5 — Precision@10 media por modelo em funcao do tamanho do historico."""
     print("\n[FIG5] Comportamento dos modelos sob cold start...")
     os.makedirs(PAPER_DIR, exist_ok=True)
@@ -1458,7 +1458,7 @@ def plot_cold_start(item_df, interactions_df, sim_matrix, cb_threshold=None, knn
         train_n = pd.concat(train_rows, ignore_index=True)
         test_n  = pd.concat(test_rows,  ignore_index=True)
 
-        rankers = _build_rankers(item_df, train_n, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_data_override)
+        rankers = _build_rankers(item_df, train_n, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_data_override, svd_n_factors=svd_n_factors)
         metrics = _eval_metrics(rankers, test_n)
 
         for m in model_names:
@@ -1589,57 +1589,95 @@ def generate_hyperparams_table(item_df, interactions_df, sim_matrix):
     try:
         from utils.constants import (KNN_N_NEIGHBORS, KMEANS_N_CLUSTERS,
                                      RRF_WEIGHT_CB, RRF_WEIGHT_KNN,
-                                     RRF_WEIGHT_SVD, RRF_WEIGHT_KMEANS)
+                                     RRF_WEIGHT_SVD, RRF_WEIGHT_KMEANS,
+                                     CB_SIMILARITY_THRESHOLD, SVD_N_FACTORS,
+                                     GRID_SEARCH_CB, GRID_SEARCH_KNN, GRID_SEARCH_SVD)
     except ImportError:
         KNN_N_NEIGHBORS   = 20
         KMEANS_N_CLUSTERS = 10
         RRF_WEIGHT_CB = RRF_WEIGHT_KNN = RRF_WEIGHT_SVD = RRF_WEIGHT_KMEANS = 1.0
+        CB_SIMILARITY_THRESHOLD = 0.1
+        SVD_N_FACTORS = 20
+        GRID_SEARCH_CB = GRID_SEARCH_KNN = GRID_SEARCH_SVD = True
 
     train_df, val_df, _, _ = _split_train_val_test(interactions_df)
     if val_df.empty:
         print("  [SKIP] Conjunto de validação vazio.")
         return None
 
-    # Grid search de threshold do CB usando o val set
-    cb_grid    = [None, 0.1, 0.2, 0.3, 0.5]
-    cb_results = {}
-    for t in cb_grid:
-        r = _build_rankers(item_df, train_df, sim_matrix, cb_threshold=t)
-        m = _eval_metrics(r, val_df)
-        cb_results[t] = m["CB (Content-Based)"]["ndcg"]
-
-    cb_best     = max(cb_results, key=cb_results.get)
-    cb_ndcg     = cb_results[cb_best]
+    # CB: grid search ou valor fixo de constants.py
+    if GRID_SEARCH_CB:
+        cb_grid = [None, 0.1, 0.2, 0.3, 0.5]
+        cb_results = {}
+        for t in cb_grid:
+            r = _build_rankers(item_df, train_df, sim_matrix, cb_threshold=t)
+            m = _eval_metrics(r, val_df)
+            cb_results[t] = m["CB (Content-Based)"]["ndcg"]
+        cb_best = max(cb_results, key=cb_results.get)
+        cb_ndcg = cb_results[cb_best]
+    else:
+        cb_best = CB_SIMILARITY_THRESHOLD
+        r = _build_rankers(item_df, train_df, sim_matrix, cb_threshold=cb_best)
+        cb_ndcg = _eval_metrics(r, val_df)["CB (Content-Based)"]["ndcg"]
+        print(f"  [CB] Grid search desabilitado — usando threshold={cb_best}")
     cb_best_str = "Sem corte" if cb_best is None else str(cb_best).replace(".", ",")
 
-    # Grid search de K do KNN usando o val set
+    # KNN: grid search ou valor fixo de constants.py
     from sklearn.neighbors import NearestNeighbors as _NearestNeighbors
     feat_cols_knn = [c for c in item_df.columns if c != "id"]
     X_knn = item_df[feat_cols_knn].values.astype(float)
-    knn_grid = [5, 10, 15, 20, 30]
-    knn_results = {}
-    print("  Grid search KNN: ", end="", flush=True)
-    for k in knn_grid:
-        n_neighbors = min(k + 1, len(X_knn))
-        tmp_model = _NearestNeighbors(n_neighbors=n_neighbors, metric="cosine", algorithm="brute", n_jobs=-1)
-        tmp_model.fit(X_knn)
-        tmp_knn_data = {
-            "model": tmp_model,
-            "item_ids": item_df["id"].tolist(),
-            "X": X_knn,
-            "metric": "cosine",
-        }
-        r = _build_rankers(item_df, train_df, sim_matrix, cb_threshold=cb_best, knn_data_override=tmp_knn_data)
-        m = _eval_metrics(r, val_df)
-        knn_results[k] = (m["KNN"]["ndcg"], tmp_knn_data)
-        print(f"K={k}({m['KNN']['ndcg']:.4f}) ", end="", flush=True)
-    print()
+    if GRID_SEARCH_KNN:
+        knn_grid = [5, 10, 15, 20, 30]
+        knn_results = {}
+        print("  Grid search KNN: ", end="", flush=True)
+        for k in knn_grid:
+            n_neighbors = min(k + 1, len(X_knn))
+            tmp_model = _NearestNeighbors(n_neighbors=n_neighbors, metric="cosine", algorithm="brute")
+            tmp_model.fit(X_knn)
+            tmp_knn_data = {
+                "model": tmp_model,
+                "item_ids": item_df["id"].tolist(),
+                "X": X_knn,
+                "metric": "cosine",
+            }
+            r = _build_rankers(item_df, train_df, sim_matrix, cb_threshold=cb_best, knn_data_override=tmp_knn_data)
+            m = _eval_metrics(r, val_df)
+            knn_results[k] = (m["KNN"]["ndcg"], tmp_knn_data)
+            print(f"K={k}({m['KNN']['ndcg']:.4f}) ", end="", flush=True)
+        print()
+        knn_best = max(knn_results, key=lambda k: knn_results[k][0])
+        knn_ndcg, knn_best_data = knn_results[knn_best]
+    else:
+        knn_best = KNN_N_NEIGHBORS
+        knn_best_data = None  # _build_rankers carrega o modelo do disco
+        r = _build_rankers(item_df, train_df, sim_matrix, cb_threshold=cb_best)
+        knn_ndcg = _eval_metrics(r, val_df)["KNN"]["ndcg"]
+        print(f"  [KNN] Grid search desabilitado — usando K={knn_best}")
 
-    knn_best = max(knn_results, key=lambda k: knn_results[k][0])
-    knn_ndcg, knn_best_data = knn_results[knn_best]
+    # SVD: grid search ou valor fixo de constants.py
+    if GRID_SEARCH_SVD:
+        svd_grid = [5, 10, 15, 20, 25, 30]
+        svd_results = {}
+        print("  Grid search SVD: ", end="", flush=True)
+        for k in svd_grid:
+            r = _build_rankers(item_df, train_df, sim_matrix, cb_threshold=cb_best,
+                               knn_data_override=knn_best_data, svd_n_factors=k)
+            m = _eval_metrics(r, val_df)
+            svd_results[k] = m["SVD (Colaborativo)"]["ndcg"]
+            print(f"k={k}({svd_results[k]:.4f}) ", end="", flush=True)
+        print()
+        svd_best = max(svd_results, key=svd_results.get)
+        svd_ndcg = svd_results[svd_best]
+    else:
+        svd_best = SVD_N_FACTORS
+        r = _build_rankers(item_df, train_df, sim_matrix, cb_threshold=cb_best,
+                           knn_data_override=knn_best_data, svd_n_factors=svd_best)
+        svd_ndcg = _eval_metrics(r, val_df)["SVD (Colaborativo)"]["ndcg"]
+        print(f"  [SVD] Grid search desabilitado — usando k={svd_best} fatores")
 
-    # Avalia todos os modelos com o threshold CB e K KNN escolhidos
-    rankers = _build_rankers(item_df, train_df, sim_matrix, cb_threshold=cb_best, knn_data_override=knn_best_data)
+    # Avalia todos os modelos com os hiperparâmetros escolhidos
+    rankers = _build_rankers(item_df, train_df, sim_matrix, cb_threshold=cb_best,
+                             knn_data_override=knn_best_data, svd_n_factors=svd_best)
     metrics = _eval_metrics(rankers, val_df)
 
     rows_out = [
@@ -1657,8 +1695,8 @@ def generate_hyperparams_table(item_df, interactions_df, sim_matrix):
          f"{metrics['K-Means']['ndcg']:.4f}"),
         ("SVD (Colaborativo)",
          "Fatores latentes {5, 10, 15, 20}",
-         "k = 20 fatores latentes",
-         f"{metrics['SVD (Colaborativo)']['ndcg']:.4f}"),
+         f"k = {svd_best} fatores latentes",
+         f"{svd_ndcg:.4f}"),
         ("XGBoost",
          "max_depth {3,4,5,6,8}; lr {0,01; 0,05; 0,1}; n_est {100,200,300,500}",
          "max_depth=6 | lr=0,05 | n_est=300 | early_stop=25",
@@ -1677,7 +1715,7 @@ def generate_hyperparams_table(item_df, interactions_df, sim_matrix):
     for _, r in tab2.iterrows():
         print(f"     {r['Modelo']:25s}  NDCG@10 = {r['NDCG@10 (validacao)']}")
 
-    return cb_best, knn_best_data
+    return cb_best, knn_best_data, svd_best
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1753,16 +1791,16 @@ def main():
     generate_dataset_table(raw_items_df, interactions_df)
 
     # Gera tabela de hiperparâmetros (Tabela 2 do artigo)
-    cb_threshold, knn_best_data = generate_hyperparams_table(item_df, interactions_df, sim_matrix)
+    cb_threshold, knn_best_data, svd_best_k = generate_hyperparams_table(item_df, interactions_df, sim_matrix)
 
     # Gera comparacao de modelos no teste (Tabela 3 + Fig. 1 do artigo)
     test_metrics = generate_model_comparison(item_df, interactions_df, sim_matrix,
-                                             cb_threshold=cb_threshold, knn_data_override=knn_best_data)
+                                             cb_threshold=cb_threshold, knn_data_override=knn_best_data, svd_n_factors=svd_best_k)
     plot_model_comparison(test_metrics)
     generate_hybrid_gain_table(test_metrics)
-    plot_k_sensitivity(item_df, interactions_df, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_best_data)
-    plot_kmeans_clusters(item_df, interactions_df, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_best_data)
-    plot_cold_start(item_df, interactions_df, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_best_data)
+    plot_k_sensitivity(item_df, interactions_df, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_best_data, svd_n_factors=svd_best_k)
+    plot_kmeans_clusters(item_df, interactions_df, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_best_data, svd_n_factors=svd_best_k)
+    plot_cold_start(item_df, interactions_df, sim_matrix, cb_threshold=cb_threshold, knn_data_override=knn_best_data, svd_n_factors=svd_best_k)
 
     # Gera figuras
     plot_data_overview(item_df, interactions_df, raw_items_df, popularity)

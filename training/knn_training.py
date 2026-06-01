@@ -34,7 +34,7 @@ def train_knn(n_neighbors: int = KNN_N_NEIGHBORS, metric: str = "cosine") -> dic
     # +1 porque o próprio item é retornado como vizinho mais próximo
     n_neighbors = min(n_neighbors + 1, len(X))
 
-    model = NearestNeighbors(n_neighbors=n_neighbors, metric=metric, algorithm="brute", n_jobs=-1)
+    model = NearestNeighbors(n_neighbors=n_neighbors, metric=metric, algorithm="brute")
     model.fit(X)
 
     # Mean neighbor distance (excludes self, which is always index 0)

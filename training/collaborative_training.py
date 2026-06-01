@@ -6,7 +6,7 @@ from scipy.sparse.linalg import svds
 from scipy.sparse import csr_matrix
 from db import get_db_connection
 from training import training
-from utils.constants import MODEL_CACHE_PATH
+from utils.constants import MODEL_CACHE_PATH, SVD_N_FACTORS
 
 SVD_MODEL_FILE = os.path.join(MODEL_CACHE_PATH, "svd_model.pkl")
 
@@ -31,7 +31,7 @@ def train_collaborative_svd():
         pivot_matrix = csr_matrix((df['score'], (user_codes.cat.codes, item_codes.cat.codes)))
         
         # Fatorização (k=faixas latentes)
-        k = min(20, pivot_matrix.shape[1] - 1)
+        k = min(SVD_N_FACTORS, pivot_matrix.shape[1] - 1)
         u, sigma_vals, vt = svds(pivot_matrix.asfptype(), k=k)
         sigma = np.diag(sigma_vals)
 
