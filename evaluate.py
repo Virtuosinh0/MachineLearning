@@ -1066,17 +1066,43 @@ def _build_rankers(item_df, train_eval_df, sim_matrix, cb_threshold=None):
                 if iid not in interacted and id_to_cl.get(iid) in cw}
         return sorted(cand, key=cand.get, reverse=True)
 
-    svd_data = load_model(os.path.join(MODEL_CACHE_PATH, "svd_model.pkl"))
+    # Re-treina SVD apenas com train_eval_df para evitar data leakage
+    _svd_eval_data = None
+    if not train_eval_df.empty:
+        try:
+            from scipy.sparse import csr_matrix as _csr
+            from scipy.sparse.linalg import svds as _svds
+
+            _df = train_eval_df.copy()
+            _df["score"] = _df.apply(interaction_score, axis=1)
+            _df["user_id"] = _df["user_id"].astype(str)
+            _df["jewelry_id"] = _df["jewelry_id"].astype(str)
+            _uc = _df["user_id"].astype("category")
+            _ic = _df["jewelry_id"].astype("category")
+            _pivot = _csr((_df["score"], (_uc.cat.codes, _ic.cat.codes)))
+            _k = min(20, _pivot.shape[1] - 1)
+            _u, _s, _vt = _svds(_pivot.asfptype(), k=_k)
+            _ratings = np.dot(np.dot(_u, np.diag(_s)), _vt)
+            _svd_eval_data = {
+                "ratings":  _ratings,
+                "user_map": _uc.cat.categories,
+                "item_map": _ic.cat.categories,
+            }
+        except Exception as _e:
+            print(f"  [AVISO] SVD eval falhou: {_e}")
 
     def rank_svd(uid):
-        if svd_data is None:
+        if _svd_eval_data is None:
             return []
-        user_map = list(svd_data["user_map"])
+        user_map = list(_svd_eval_data["user_map"])
         if uid not in user_map:
             return []
+        interacted = set(seed_scores(uid))
         u_idx   = user_map.index(uid)
-        ratings = svd_data["ratings"][u_idx]
-        return [str(svd_data["item_map"][i]) for i in np.argsort(ratings)[::-1]]
+        ratings = _svd_eval_data["ratings"][u_idx]
+        return [str(_svd_eval_data["item_map"][i])
+                for i in np.argsort(ratings)[::-1]
+                if str(_svd_eval_data["item_map"][i]) not in interacted]
 
     xgb_model = load_model(os.path.join(MODEL_CACHE_PATH, "xgb_model.pkl"))
 
