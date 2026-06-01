@@ -21,7 +21,7 @@ except Exception as e:
     print("[xgboost_training] Aviso: xgboost não está instalado. Instale com: pip install xgboost")
 
 try:
-    from utils.constants import MODEL_CACHE_PATH 
+    from utils.constants import MODEL_CACHE_PATH, XGB_MAX_DEPTH, XGB_LEARNING_RATE, XGB_N_ESTIMATORS, XGB_EARLY_STOPPING
     XGB_MODEL_FILE = os.path.join(MODEL_CACHE_PATH, "xgb_model.pkl")
 except ImportError:
     MODEL_CACHE_PATH = "models"
@@ -132,16 +132,16 @@ def train_xgb(limit_days: Optional[int] = 365,
     )
 
     default_params = {
-        "n_estimators": 300,
-        "learning_rate": 0.05,
-        "max_depth": 6,
+        "n_estimators": XGB_N_ESTIMATORS,
+        "learning_rate": XGB_LEARNING_RATE,
+        "max_depth": XGB_MAX_DEPTH,
         "subsample": 0.8,
         "colsample_bytree": 0.8,
         "random_state": random_state,
         "verbosity": 0,
         "n_jobs": -1,
         "eval_metric": "rmse",
-        "early_stopping_rounds": 25
+        "early_stopping_rounds": XGB_EARLY_STOPPING
     }
     if xgb_params:
         default_params.update(xgb_params)

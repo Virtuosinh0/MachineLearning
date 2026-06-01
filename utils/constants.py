@@ -34,7 +34,16 @@ CB_SIMILARITY_THRESHOLD = 0.1
 # Número de fatores latentes do SVD (seção 3.3 do artigo)
 SVD_N_FACTORS = 30
 
+# XGBoost hiperparâmetros de produção (seção 3.3 do artigo)
+XGB_MAX_DEPTH        = 6
+XGB_LEARNING_RATE    = 0.05
+XGB_N_ESTIMATORS     = 300
+XGB_EARLY_STOPPING   = 25
+
 # Flags de grid search — True: executa varredura na validação / False: usa o valor fixo acima
-GRID_SEARCH_CB  = False
-GRID_SEARCH_KNN = False
-GRID_SEARCH_SVD = False
+GRID_SEARCH_CB     = False
+GRID_SEARCH_KNN    = False
+GRID_SEARCH_SVD    = False
+GRID_SEARCH_KMEANS = False
+GRID_SEARCH_XGB    = False
+GRID_SEARCH_RRF    = False
